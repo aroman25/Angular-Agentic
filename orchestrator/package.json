@@ -1,0 +1,23 @@
+{
+  "name": "angular-agent-orchestrator",
+  "version": "1.0.0",
+  "description": "LangChain agents to build Angular v21 apps",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "@langchain/openai": "^0.3.0",
+    "dotenv": "^16.4.5",
+    "fs-extra": "^11.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
