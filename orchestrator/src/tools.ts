@@ -6,6 +6,36 @@ import path from "path";
 
 export const TARGET_DIR = path.resolve(__dirname, '../../generated-app');
 
+function rejectUnsafeAgentCommand(command: string): string | null {
+  const normalized = command.trim().toLowerCase();
+  const bannedPatterns: Array<{ regex: RegExp; reason: string }> = [
+    {
+      regex: /\bnpm(\.cmd)?\s+(run\s+)?start\b/,
+      reason: "Do not run the dev server from the agent tool; it is long-running and can lock generated-app files.",
+    },
+    {
+      regex: /\bng\s+serve\b/,
+      reason: "Do not run 'ng serve' from the agent tool; use build/test commands only.",
+    },
+    {
+      regex: /\btsx\b.*\borchestrator\b/,
+      reason: "Do not invoke the orchestrator recursively from inside the generated app.",
+    },
+  ];
+
+  for (const pattern of bannedPatterns) {
+    if (pattern.regex.test(normalized)) {
+      return `Command rejected: ${pattern.reason} Command: ${command}`;
+    }
+  }
+
+  if (normalized.includes("--watch") && !normalized.includes("--watch=false")) {
+    return `Command rejected: Do not run watch-mode commands from the agent tool; use one-shot build/test commands (e.g., '--watch=false'). Command: ${command}`;
+  }
+
+  return null;
+}
+
 export const writeCodeTool = tool(
   async ({ filePath, content }) => {
     const fullPath = path.join(TARGET_DIR, filePath);
@@ -42,6 +72,11 @@ export const readFileTool = tool(
 
 export const runCommandTool = tool(
   async ({ command }) => {
+    const commandRejection = rejectUnsafeAgentCommand(command);
+    if (commandRejection) {
+      return commandRejection;
+    }
+
     try {
       // Run command synchronously and capture output
       const output = execSync(command, { cwd: TARGET_DIR, encoding: 'utf-8', stdio: 'pipe' });

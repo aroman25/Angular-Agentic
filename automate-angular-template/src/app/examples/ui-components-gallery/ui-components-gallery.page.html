@@ -1,0 +1,663 @@
+<main class="relative min-h-screen overflow-x-clip bg-slate-100 text-slate-900">
+  <div class="pointer-events-none absolute inset-0">
+    <div class="absolute -left-12 top-2 h-56 w-56 rounded-full bg-cyan-200/40 blur-3xl"></div>
+    <div class="absolute right-0 top-24 h-72 w-72 rounded-full bg-blue-200/35 blur-3xl"></div>
+    <div class="absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-emerald-200/25 blur-3xl"></div>
+  </div>
+
+  <div class="relative mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-6 lg:px-8">
+    <header class="mb-6 rounded-3xl border border-white/70 bg-white/80 p-5 shadow-xl shadow-slate-200/60 backdrop-blur sm:p-7">
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div class="space-y-4">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+              Template Example
+            </span>
+            <span class="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-700">
+              Shared UI Showcase
+            </span>
+          </div>
+
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Shared UI Component Gallery</h1>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
+              Browse every component exported from
+              <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">src/app/shared/ui</code>.
+              Select a component from the left nav to preview it on the right.
+            </p>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-3">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Components</p>
+              <p class="mt-1 text-2xl font-semibold text-slate-900">{{ componentCount() }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Selected</p>
+              <p class="mt-1 text-sm font-semibold text-slate-900">{{ selectedShowcaseItem().title }}</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-4">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Selector</p>
+              <p class="mt-1 text-sm font-mono text-slate-800">{{ selectedShowcaseItem().selector }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-slate-100">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Interaction Log</p>
+            <app-button size="sm" variant="ghost" (click)="clearEventLog()">Clear</app-button>
+          </div>
+          <ul class="space-y-2 text-sm">
+            @for (entry of eventLog(); track entry) {
+              <li class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-200">{{ entry }}</li>
+            }
+          </ul>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[18.5rem_minmax(0,1fr)]">
+      <aside class="lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]">
+        <div class="flex h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-xl shadow-slate-200/60 backdrop-blur">
+          <div class="border-b border-slate-200 px-4 py-4">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Component Index</p>
+            <p class="mt-1 text-sm text-slate-600">Click to load a live preview.</p>
+          </div>
+
+          <nav class="min-h-0 flex-1 overflow-y-auto px-3 py-3" aria-label="Shared UI component list">
+            <div class="space-y-4">
+              @for (group of navGroups; track group.title) {
+                <section>
+                  <h2 class="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{{ group.title }}</h2>
+                  <ul class="mt-2 space-y-1">
+                    @for (item of group.items; track item.id) {
+                      <li>
+                        <button
+                          type="button"
+                          class="group w-full rounded-xl border px-3 py-2 text-left transition"
+                          [class.border-cyan-200]="isActive(item.id)"
+                          [class.bg-cyan-50]="isActive(item.id)"
+                          [class.text-cyan-900]="isActive(item.id)"
+                          [class.border-transparent]="!isActive(item.id)"
+                          [class.bg-white/70]="!isActive(item.id)"
+                          [class.text-slate-700]="!isActive(item.id)"
+                          [class.hover:border-slate-200]="!isActive(item.id)"
+                          [class.hover:bg-white]="!isActive(item.id)"
+                          (click)="setActiveNav(item.id)"
+                        >
+                          <div class="flex items-start justify-between gap-2">
+                            <span class="text-sm font-medium">{{ item.title }}</span>
+                            <code class="rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500 shadow-sm">{{ item.selector }}</code>
+                          </div>
+                          <p class="mt-1 text-xs leading-5 text-slate-500">{{ item.description }}</p>
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                </section>
+              }
+            </div>
+          </nav>
+        </div>
+      </aside>
+
+      <section class="min-w-0 space-y-4" aria-label="Selected component preview">
+        <div class="rounded-3xl border border-white/70 bg-white/80 shadow-xl shadow-slate-200/60 backdrop-blur">
+          <div class="border-b border-slate-200/80 bg-white/60 px-5 py-4 sm:px-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <div class="mb-2 flex flex-wrap items-center gap-2">
+                  <span class="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                    {{ selectedShowcaseItem().group }}
+                  </span>
+                  <code class="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">{{ selectedShowcaseItem().selector }}</code>
+                </div>
+                <h2 class="text-xl font-semibold tracking-tight text-slate-900">{{ selectedShowcaseItem().title }}</h2>
+                <p class="mt-1 text-sm leading-6 text-slate-600">{{ selectedShowcaseItem().description }}</p>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                <span class="font-semibold text-slate-800">Tip:</span> Interact with the preview and watch the log.
+              </div>
+            </div>
+          </div>
+
+          <div id="component-preview-panel" class="px-5 py-5 sm:px-6 sm:py-6">
+            @switch (activeNavId()) {
+              @case ('accordion') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_18rem]">
+                  <app-accordion [multiExpandable]="true">
+                    <app-accordion-item title="Design Principles" id="gallery-accordion-1">
+                      Balance readability, contrast, and spacing so component examples remain practical references.
+                    </app-accordion-item>
+                    <app-accordion-item title="Composition Guidance" id="gallery-accordion-2">
+                      Compose shared UI primitives before creating overlapping custom wrappers.
+                    </app-accordion-item>
+                    <app-accordion-item title="Accessibility Notes" id="gallery-accordion-3">
+                      Angular Aria directives provide keyboard and ARIA behaviors for trigger and panel state.
+                    </app-accordion-item>
+                  </app-accordion>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                    Multi-expand mode is enabled in this preview using <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">[multiExpandable]</code>.
+                  </div>
+                </div>
+              }
+
+              @case ('accordion-item') {
+                <div class="space-y-4">
+                  <p class="text-sm text-slate-600">
+                    <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">app-accordion-item</code> is a child component. This preview highlights the item API inside a minimal parent accordion.
+                  </p>
+                  <app-accordion>
+                    <app-accordion-item title="Child API Demo" id="gallery-accordion-item-child">
+                      Provide <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">title</code> and optional stable <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">id</code>.
+                    </app-accordion-item>
+                  </app-accordion>
+                </div>
+              }
+
+              @case ('alert') {
+                <div class="space-y-4">
+                  <div class="flex flex-wrap gap-2">
+                    <app-button size="sm" variant="outline" (click)="cycleAlertVariant()">Cycle Variant</app-button>
+                    <app-button size="sm" variant="secondary" (click)="alertVisible.set(!alertVisible())">
+                      {{ alertVisible() ? 'Hide' : 'Show' }} Alert
+                    </app-button>
+                  </div>
+                  <app-alert
+                    [variant]="selectedAlertVariant()"
+                    title="Component Showcase Alert"
+                    message="Dismissible inline banner with tone variants and visible model binding."
+                    [dismissible]="true"
+                    [visible]="alertVisible()"
+                    [role]="selectedAlertVariant() === 'danger' ? 'alert' : 'status'"
+                    (visibleChange)="alertVisible.set($event)"
+                    (closed)="pushEvent('Alert dismissed')"
+                  ></app-alert>
+                </div>
+              }
+
+              @case ('autocomplete') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-autocomplete
+                      [options]="autocompleteOptions"
+                      [value]="autocompleteValue()"
+                      [inputValue]="autocompleteInputValue()"
+                      (valueChange)="autocompleteValue.set($event)"
+                      (inputValueChange)="autocompleteInputValue.set($event)"
+                    ></app-autocomplete>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Value</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ autocompleteValue() || 'none' }}</p>
+                    <p class="mt-3 text-xs uppercase tracking-wide text-slate-500">Input Text</p>
+                    <p class="mt-2 text-slate-700">{{ autocompleteInputValue() || 'empty' }}</p>
+                  </div>
+                </div>
+              }
+
+              @case ('avatar') {
+                <div class="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-white p-4">
+                  <app-avatar name="Alexa Rivera" size="xs" [soft]="true"></app-avatar>
+                  <app-avatar name="Marcus Chen" size="sm"></app-avatar>
+                  <app-avatar name="Priya Shah" size="md"></app-avatar>
+                  <app-avatar name="Jordan Kim" size="lg" [soft]="true"></app-avatar>
+                  <app-avatar name="Riley Stone" size="xl"></app-avatar>
+                </div>
+              }
+
+              @case ('badge') {
+                <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-4">
+                  <app-badge>Default</app-badge>
+                  <app-badge variant="info">Info</app-badge>
+                  <app-badge variant="success">Success</app-badge>
+                  <app-badge variant="warning">Warning</app-badge>
+                  <app-badge variant="danger">Danger</app-badge>
+                  <app-badge variant="outline">Outline</app-badge>
+                  <app-badge size="sm" rounded="md">Compact</app-badge>
+                </div>
+              }
+
+              @case ('breadcrumb') {
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <app-breadcrumb [items]="breadcrumbItems"></app-breadcrumb>
+                </div>
+              }
+
+              @case ('button') {
+                <div class="space-y-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Variants</p>
+                    <div class="flex flex-wrap gap-2">
+                      <app-button (click)="incrementButtonCounter()">Primary</app-button>
+                      <app-button variant="secondary">Secondary</app-button>
+                      <app-button variant="outline">Outline</app-button>
+                      <app-button variant="ghost">Ghost</app-button>
+                      <app-button variant="danger">Danger</app-button>
+                      <app-button variant="link">Link Button</app-button>
+                    </div>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Sizes & Loading</p>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <app-button size="sm">Small</app-button>
+                      <app-button size="md">Medium</app-button>
+                      <app-button size="lg">Large</app-button>
+                      <app-button size="icon" aria-label="Arrow action">
+                        <app-icon class="h-4 w-4">
+                          <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M3 10a1 1 0 011-1h8.586L10.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H4a1 1 0 01-1-1z" clip-rule="evenodd"></path>
+                          </svg>
+                        </app-icon>
+                      </app-button>
+                      <app-button [loading]="true">Saving…</app-button>
+                    </div>
+                  </div>
+                  <p class="text-sm text-slate-600">Primary button click count: <strong>{{ buttonClicks() }}</strong></p>
+                </div>
+              }
+
+              @case ('card') {
+                <div class="grid gap-4 xl:grid-cols-3">
+                  <app-card title="Default Card" description="Standard content surface.">
+                    <p class="text-sm text-slate-700">Use for most page sections and feature panels.</p>
+                  </app-card>
+                  <app-card title="Muted Tone" description="Secondary surface." tone="muted">
+                    <p class="text-sm text-slate-700">Useful for supporting details or sidebars.</p>
+                  </app-card>
+                  <app-card title="Brand / Interactive" description="Hoverable summary card." tone="brand" [interactive]="true">
+                    <div class="space-y-2 text-sm text-slate-700">
+                      <p>Hover for elevated shadow treatment.</p>
+                      <app-badge variant="info">Interactive</app-badge>
+                    </div>
+                  </app-card>
+                </div>
+              }
+
+              @case ('checkbox') {
+                <div class="space-y-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-checkbox
+                      label="Enable release notifications"
+                      description="Sends notifications after deployment completes."
+                      [checked]="checkboxChecked()"
+                      (checkedChange)="checkboxChecked.set($event)"
+                    ></app-checkbox>
+                    <p class="mt-3 text-sm text-slate-600">Current state: <strong>{{ checkboxChecked() ? 'checked' : 'unchecked' }}</strong></p>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-checkbox label="Select all modules" description="Indeterminate visual state preview." [indeterminate]="true"></app-checkbox>
+                  </div>
+                </div>
+              }
+
+              @case ('data-grid') {
+                <div class="space-y-4">
+                  <app-data-grid [columns]="gridColumns" [rows]="tableRows" trackByKey="id" [enableSelection]="true" [multi]="true"></app-data-grid>
+                  <p class="text-sm text-slate-600">Use data grid for keyboard-centric tabular interactions.</p>
+                </div>
+              }
+
+              @case ('dialog') {
+                <div class="space-y-4">
+                  <div class="flex flex-wrap gap-2">
+                    <app-button (click)="openDialog()">Open Dialog</app-button>
+                    <app-button variant="outline" (click)="pushEvent('Dialog preview: extra action')">Log Event</app-button>
+                  </div>
+                  <app-dialog
+                    title="Publish Design Update"
+                    description="Confirm the selected release notes before publishing."
+                    [open]="dialogOpen()"
+                    (openChange)="dialogOpen.set($event)"
+                    (closed)="pushEvent('Dialog closed')"
+                  >
+                    <div class="space-y-3">
+                      <p class="text-sm text-slate-700">Publishing will notify workspace members and update the changelog feed.</p>
+                      <app-alert variant="info" message="This is a live preview only." [dismissible]="false"></app-alert>
+                    </div>
+                    <div dialog-actions>
+                      <app-button variant="secondary" (click)="dialogOpen.set(false)">Cancel</app-button>
+                      <app-button (click)="dialogOpen.set(false); pushEvent('Dialog confirmed')">Publish</app-button>
+                    </div>
+                  </app-dialog>
+                </div>
+              }
+
+              @case ('divider') {
+                <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+                  <div class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-divider></app-divider>
+                    <app-divider label="Section Break"></app-divider>
+                    <app-divider></app-divider>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex h-24 items-center justify-center gap-4">
+                      <span class="text-sm text-slate-600">Left</span>
+                      <app-divider orientation="vertical"></app-divider>
+                      <span class="text-sm text-slate-600">Right</span>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              @case ('drawer') {
+                <div class="space-y-4">
+                  <div class="flex flex-wrap gap-2">
+                    <app-button (click)="openDrawer()">Open Drawer</app-button>
+                    <app-button variant="outline" (click)="flipDrawerSide()">Flip Side ({{ drawerSide() }})</app-button>
+                  </div>
+                  <app-drawer
+                    title="Component Notes"
+                    description="Projected content and drawer actions slot preview."
+                    [side]="drawerSide()"
+                    [open]="drawerOpen()"
+                    (openChange)="drawerOpen.set($event)"
+                    (closed)="pushEvent('Drawer closed')"
+                  >
+                    <div class="space-y-4">
+                      <app-card title="Quick Draft">
+                        <div class="space-y-3">
+                          <app-text-input label="Title" [value]="textInputValue()" (valueChange)="textInputValue.set($event)"></app-text-input>
+                          <app-textarea label="Notes" [rows]="4" [value]="textareaValue()" (valueChange)="textareaValue.set($event)"></app-textarea>
+                        </div>
+                      </app-card>
+                    </div>
+                    <div drawer-actions>
+                      <app-button variant="secondary" (click)="drawerOpen.set(false)">Close</app-button>
+                      <app-button (click)="drawerOpen.set(false); pushEvent('Drawer save clicked')">Save</app-button>
+                    </div>
+                  </app-drawer>
+                </div>
+              }
+
+              @case ('empty-state') {
+                <app-empty-state
+                  title="No items in this collection"
+                  description="Create your first item or import existing data to populate this area."
+                >
+                  <div empty-state-icon>
+                    <app-icon class="h-6 w-6 text-slate-500">
+                      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7.414A2 2 0 0017.414 6l-3.414-3.414A2 2 0 0012.586 2H4zm8 1.5V7h2.5L12 4.5z"></path>
+                      </svg>
+                    </app-icon>
+                  </div>
+                  <app-button size="sm" (click)="pushEvent('Empty state: create item')">Create Item</app-button>
+                  <app-button size="sm" variant="secondary" (click)="pushEvent('Empty state: import')">Import</app-button>
+                </app-empty-state>
+              }
+
+              @case ('icon') {
+                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs uppercase tracking-wide text-slate-500">Arrow</p>
+                    <app-icon class="h-8 w-8 text-blue-600">
+                      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M3 10a1 1 0 011-1h8.586L10.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H4a1 1 0 01-1-1z" clip-rule="evenodd"></path>
+                      </svg>
+                    </app-icon>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs uppercase tracking-wide text-slate-500">Spark</p>
+                    <app-icon class="h-8 w-8 text-amber-500">
+                      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path d="M11.3 1.046a.75.75 0 00-1.1 0l-1.72 1.84-2.5.575a.75.75 0 00-.387 1.267l1.7 1.756-.246 2.552a.75.75 0 001.086.74L10.75 8.9l2.617 1.376a.75.75 0 001.086-.74l-.246-2.552 1.7-1.756a.75.75 0 00-.387-1.267l-2.5-.575-1.72-1.84z"></path>
+                      </svg>
+                    </app-icon>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs uppercase tracking-wide text-slate-500">Shield</p>
+                    <app-icon class="h-8 w-8 text-emerald-600">
+                      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 1l7 3v5c0 4.55-2.86 7.91-7 10-4.14-2.09-7-5.45-7-10V4l7-3zm2.78 6.53a.75.75 0 10-1.06-1.06L9 9.19 8.28 8.47a.75.75 0 10-1.06 1.06l1.25 1.25a.75.75 0 001.06 0l3.25-3.25z" clip-rule="evenodd"></path>
+                      </svg>
+                    </app-icon>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p class="mb-3 text-xs uppercase tracking-wide text-slate-500">Pulse</p>
+                    <app-icon class="h-8 w-8 text-fuchsia-600">
+                      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M2.5 10a.75.75 0 01.75-.75h2.317l1.676-3.353a.75.75 0 011.368.093l2.001 6.002 1.093-2.186a.75.75 0 01.671-.414h4.374a.75.75 0 010 1.5h-3.91l-1.669 3.338a.75.75 0 01-1.39-.08L8.7 8.235l-.78 1.56a.75.75 0 01-.67.415H3.25A.75.75 0 012.5 10z" clip-rule="evenodd"></path>
+                      </svg>
+                    </app-icon>
+                  </div>
+                </div>
+              }
+
+              @case ('dropdown-menu') {
+                <div class="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-dropdown-menu [label]="'Actions'" [items]="dropdownMenuItems"></app-dropdown-menu>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                    The menu trigger and item actions are configured with typed <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">items</code>.
+                  </div>
+                </div>
+              }
+
+              @case ('pagination') {
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <app-pagination [totalPages]="18" [currentPage]="paginationPage()" (currentPageChange)="onPaginationChanged($event)"></app-pagination>
+                  <p class="mt-4 text-sm text-slate-600">Current page signal: <strong>{{ paginationPage() }}</strong></p>
+                </div>
+              }
+
+              @case ('progress') {
+                <div class="space-y-4">
+                  <div class="flex flex-wrap gap-2">
+                    <app-button size="sm" variant="outline" (click)="randomizeProgress()">Randomize Progress</app-button>
+                  </div>
+                  <div class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-progress label="Release Readiness" [value]="progressValue()" [showValue]="true"></app-progress>
+                    <app-progress label="Background Sync" [indeterminate]="true"></app-progress>
+                  </div>
+                </div>
+              }
+
+              @case ('radio-group') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-radio-group
+                      [label]="'Visibility'"
+                      [name]="'showcase-visibility'"
+                      [options]="radioOptions"
+                      [value]="radioValue()"
+                      (valueChange)="radioValue.set($event)"
+                    ></app-radio-group>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Value</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ radioValue() || 'none' }}</p>
+                  </div>
+                </div>
+              }
+
+              @case ('select') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-select [options]="selectOptions" [value]="selectValue()" (valueChange)="selectValue.set($event)"></app-select>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Value</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ selectValue() || 'none' }}</p>
+                  </div>
+                </div>
+              }
+
+              @case ('skeleton') {
+                <div class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3">
+                  <div class="space-y-3">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Line</p>
+                    <app-skeleton heightClass="h-4"></app-skeleton>
+                    <app-skeleton widthClass="w-4/5" heightClass="h-4"></app-skeleton>
+                    <app-skeleton widthClass="w-3/5" heightClass="h-4"></app-skeleton>
+                  </div>
+                  <div class="space-y-3">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Rect</p>
+                    <app-skeleton shape="rect" heightClass="h-24"></app-skeleton>
+                    <app-skeleton shape="rect" heightClass="h-16"></app-skeleton>
+                  </div>
+                  <div class="space-y-3">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Circle</p>
+                    <div class="flex items-center gap-3">
+                      <app-skeleton shape="circle"></app-skeleton>
+                      <app-skeleton shape="circle" widthClass="w-12" heightClass="h-12"></app-skeleton>
+                      <app-skeleton shape="circle" [animate]="false"></app-skeleton>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              @case ('spinner') {
+                <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div class="flex flex-wrap items-center gap-6">
+                    <div class="flex items-center gap-2 text-sm text-slate-700"><app-spinner size="sm"></app-spinner><span>sm / default</span></div>
+                    <div class="flex items-center gap-2 text-sm text-slate-700"><app-spinner size="md" tone="muted"></app-spinner><span>md / muted</span></div>
+                    <div class="flex items-center gap-2 text-sm text-slate-700"><app-spinner size="lg" tone="brand"></app-spinner><span>lg / brand</span></div>
+                    <div class="flex items-center gap-2 text-sm text-slate-700"><app-spinner size="lg" tone="danger"></app-spinner><span>lg / danger</span></div>
+                  </div>
+                </div>
+              }
+
+              @case ('switch') {
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-switch
+                      label="Enable realtime sync"
+                      description="Keeps the dashboard updated automatically."
+                      [checked]="switchChecked()"
+                      (checkedChange)="switchChecked.set($event)"
+                    ></app-switch>
+                    <app-switch size="sm" label="Compact switch" description="Small variant for denser layouts." [checked]="true"></app-switch>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Current State</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ switchChecked() ? 'Enabled' : 'Disabled' }}</p>
+                  </div>
+                </div>
+              }
+
+              @case ('table') {
+                <div class="space-y-4">
+                  <app-table [columns]="tableColumns" [rows]="tableRows" trackByKey="id"></app-table>
+                  <p class="text-sm text-slate-600">Read-only table with typed columns and row objects.</p>
+                </div>
+              }
+
+              @case ('tabs') {
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    @if (tabsDemoItems().length) {
+                      <app-tabs [tabs]="tabsDemoItems()" [selectedTab]="tabsSelected()" (selectedTabChange)="onTabsSelectedChange($event)"></app-tabs>
+                    }
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Tab</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ tabsSelected() || 'none' }}</p>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      <app-badge variant="info">Aria Tabs</app-badge>
+                      <app-badge variant="outline">Typed Config</app-badge>
+                    </div>
+                    <app-button class="mt-3" size="sm" variant="outline" (click)="pushEvent('Tabs interaction CTA clicked')">Log Tabs Event</app-button>
+                  </div>
+                </div>
+              }
+
+              @case ('text-input') {
+                <div class="grid gap-4 xl:grid-cols-2">
+                  <div class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-text-input
+                      label="Workspace Name"
+                      hint="Used in page titles and breadcrumb trails."
+                      [required]="true"
+                      [value]="textInputValue()"
+                      (valueChange)="textInputValue.set($event)"
+                    ></app-text-input>
+                    <p class="text-sm text-slate-600">Bound value: <strong>{{ textInputValue() }}</strong></p>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-text-input label="Email" type="email" placeholder="team@example.com" error="Please enter a valid email address." [value]="'invalid-email'"></app-text-input>
+                  </div>
+                </div>
+              }
+
+              @case ('textarea') {
+                <div class="grid gap-4 xl:grid-cols-2">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-textarea
+                      label="Description"
+                      hint="Keep it concise and readable."
+                      [rows]="5"
+                      [value]="textareaValue()"
+                      (valueChange)="textareaValue.set($event)"
+                    ></app-textarea>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-textarea label="Review Note" [rows]="4" error="Review note must be at least 20 characters." [value]="'Too short.'"></app-textarea>
+                  </div>
+                </div>
+              }
+
+              @case ('toast') {
+                <div class="space-y-4">
+                  <div class="flex flex-wrap gap-2">
+                    <app-button size="sm" (click)="toggleToast()">{{ toastOpen() ? 'Hide' : 'Show' }} Toast</app-button>
+                    <app-button size="sm" variant="outline" (click)="toastOpen.set(true)">Reset</app-button>
+                  </div>
+                  <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+                    <div class="flex justify-end">
+                      <app-toast
+                        title="Saved"
+                        message="Showcase preferences updated."
+                        tone="success"
+                        [open]="toastOpen()"
+                        (openChange)="toastOpen.set($event)"
+                        (closed)="pushEvent('Toast closed')"
+                      ></app-toast>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              @case ('toolbar') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-toolbar
+                      [items]="toolbarItems"
+                      ariaLabel="View mode toolbar"
+                      [values]="toolbarValues()"
+                      (valuesChange)="toolbarValues.set($event)"
+                      (itemTriggered)="onToolbarTriggered($event)"
+                    ></app-toolbar>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Values</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ formattedToolbarValues() }}</p>
+                  </div>
+                </div>
+              }
+
+              @case ('tree') {
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <app-tree [nodes]="treeNodes" [multi]="true" [values]="treeValues()" (valuesChange)="onTreeValuesChange($event)"></app-tree>
+                  </div>
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                    <p class="text-xs uppercase tracking-wide text-slate-500">Selected Nodes</p>
+                    <p class="mt-2 font-medium text-slate-900">{{ formattedTreeValues() }}</p>
+                  </div>
+                </div>
+              }
+              @default {
+                <div class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+                  Preview not configured for this component yet.
+                </div>
+              }
+            }
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>

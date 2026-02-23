@@ -23,6 +23,7 @@
   "private": true,
   "packageManager": "npm@11.6.0",
   "dependencies": {
+    "@angular/aria": "^21.1.5",
     "@angular/common": "^21.1.0",
     "@angular/compiler": "^21.1.0",
     "@angular/core": "^21.1.0",
@@ -36,6 +37,7 @@
     "@angular/build": "^21.1.4",
     "@angular/cli": "^21.1.4",
     "@angular/compiler-cli": "^21.1.0",
+    "@tailwindcss/postcss": "^4.2.0",
     "autoprefixer": "^10.4.24",
     "jsdom": "^27.1.0",
     "postcss": "^8.5.6",
