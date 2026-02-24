@@ -1,113 +1,144 @@
-# Feature: Used Car Inquiry Form Workspace (Full Shared UI Coverage)
+# User Story: Two-Page To-Do Application (Landing + Home)
 
-As a shopper, I want a polished used-car inquiry experience so that I can submit my contact details, vehicle preferences, trade-in and financing information, and schedule a follow-up with a dealership while reviewing a clear summary of my submission.
+## Goal
+Create a polished 2-page Angular application for personal task management.
 
-## Requirements
-1. **Fresh App From Template**
-   - Start from the provided Angular template and generate a new app from scratch (no reuse of previous generated app output).
-   - The generated app must compile successfully.
+- The first page is a marketing-style landing page.
+- The second page is the actual to-do application ("Home").
+- The experience should feel production-ready, not a basic demo.
 
-2. **Scope (Mock App, No Backend)**
-   - Build a used-car inquiry workflow using mock/local data only.
-   - No real API, auth, payment, or persistence backend is required.
-   - Submit can be simulated (e.g., toast/dialog confirmation + local state update).
+## Primary Route & Navigation Requirements
+- Landing page is accessible at `/`.
+- To-do Home page is accessible at `/home`.
+- The first page shown on initial load must be the landing page at `/`.
+- The landing page must include a primary CTA button that navigates to `/home`.
+- The Home page must include a way to navigate back to `/` (button or link).
 
-3. **Primary Experience**
-   - Create a responsive `/used-car-inquiry` page (mobile + desktop) with a modern dealership UI.
-   - The page should feel production-grade (clear hierarchy, spacing, validation messaging, focus states, polished Tailwind styling).
-   - The page should contain a real inquiry form plus supporting panels/components (inventory preview, summary, help, FAQs, etc.).
+## Two-Page Application Plan
 
-4. **Reactive Form (Required)**
-   - Use **typed Reactive Forms** (`FormGroup`, `FormControl`, `ReactiveFormsModule`) for the inquiry form.
-   - No template-driven forms and no `[(ngModel)]`.
-   - Use Angular Signals (`signal`, `computed`) for feature UI state (selected inventory item, loading state, submit status, draft summary, drawer/dialog state, etc.).
-   - If shared UI controls do not implement CVA, bridge them with `[value]` / `(valueChange)` and `FormControl` updates.
+### 1) Landing Page (`/`)
+Purpose: Explain the app and drive the user into the to-do workflow.
 
-5. **Form Fields (Minimum)**
-   - Contact info: first name, last name, email, phone, preferred contact method
-   - Vehicle interest: make/model search, trim, year range, max mileage, budget, preferred body type
-   - Financing: financing needed (yes/no), down payment, monthly budget, credit range
-   - Trade-in: trade-in toggle, current vehicle year/make/model/mileage/condition
-   - Appointment & notes: preferred date/time window, dealership location, notes/questions
-   - Consent: contact consent and privacy acknowledgement
+Required content:
+- Hero heading (clear benefit-driven message)
+- Short supporting description (1-2 sentences)
+- Primary CTA: "Start Organizing" (navigates to `/home`)
+- Secondary CTA or text link: "View Demo Tasks" (also navigates to `/home`)
+- 3 feature highlights (for example: quick capture, progress tracking, focused lists)
+- Small trust/benefit row (e.g., "Local-only demo state", "No sign-in required", "Fast keyboard-friendly")
 
-6. **Validation (Required)**
-   - Implement explicit validators (required, email format, min/max, minLength, pattern, and any custom validator(s) as appropriate).
-   - Render validation messages in the UI (based on `touched`, `dirty`, and/or submitted state).
-   - Include inline validation messages for multiple fields (at least 5 fields), and a form-level validation summary/alert after submit attempt.
-   - Prevent invalid submit (disable submit button while invalid/pending).
-   - Show a visible submit result state (success and/or simulated error path).
-   - Include at least one cross-field validation rule (example: if preferred contact is email, email is required and valid; if phone, phone is required/pattern-valid).
+### 2) Home Page (`/home`) - Actual To-Do Application
+Purpose: Add, complete, filter, and remove tasks with clear feedback.
 
-7. **Used-Car Inquiry UX**
-   - Include an inventory preview (mock vehicles) users can browse/select while filling out the form.
-   - Include a summary/review area showing current form values before submission.
-   - Include clear primary/secondary actions (submit, reset, save draft, view summary, etc.).
-   - Include keyboard-accessible modal/drawer interaction(s) for reviewing details or confirmation.
+Required sections:
+- Header area with page title and summary counts
+- Quick add task form
+- Filter controls (All, Active, Completed)
+- Task list area
+- Empty state when no tasks match the selected filter
 
-8. **Shared UI Reuse (Required: Full Coverage)**
-   - Reuse pre-built components from `src/app/shared/ui/` instead of building custom equivalents.
-   - Use the `shared/ui` components according to their top usage comments.
-   - **All shared UI elements in the template must be used at least once somewhere in the feature experience** (main form or supporting panels/workspace UI):
-     - `app-accordion`
-     - `app-accordion-item`
-     - `app-alert`
-     - `app-autocomplete`
-     - `app-avatar`
-     - `app-badge`
-     - `app-breadcrumb`
-     - `app-button`
-     - `app-card`
-     - `app-checkbox`
-     - `app-data-grid`
-     - `app-dialog`
-     - `app-divider`
-     - `app-drawer`
-     - `app-empty-state`
-     - `app-icon` (all SVGs must be wrapped)
-     - `app-dropdown-menu`
-     - `app-pagination`
-     - `app-progress`
-     - `app-radio-group`
-     - `app-select`
-     - `app-skeleton`
-     - `app-spinner`
-     - `app-switch`
-     - `app-table`
-     - `app-tabs`
-     - `app-text-input`
-     - `app-textarea`
-     - `app-toast`
-     - `app-toolbar`
-     - `app-tree`
+## To-Do Data Model (Front-End Only)
+Each task item should include:
+- `id` (string)
+- `title` (string)
+- `completed` (boolean)
+- `createdAt` (string or number timestamp)
 
-9. **Suggested Mapping for Shared UI Coverage (Use Similar Intent)**
-   - `app-breadcrumb`: navigation context
-   - `app-toolbar` + `app-dropdown-menu`: page actions / quick actions
-   - `app-tabs`: switch between inquiry sections (Contact, Vehicle, Finance, Trade-In, Review)
-   - `app-card`, `app-divider`, `app-badge`, `app-avatar`: layout + advisor/lead status UI
-   - `app-radio-group`: MUST be used for preferred contact method selection in the actual inquiry form (not only a demo section)
-   - `app-text-input`, `app-textarea`, `app-select`, `app-autocomplete`, `app-checkbox`, `app-switch`: other inquiry form controls
-   - `app-alert`: form-level validation summary / dealership notice
-   - `app-progress`: completion progress
-   - `app-skeleton`, `app-spinner`: loading and submit states
-   - `app-table` + `app-data-grid` + `app-pagination`: inventory/quote/offer previews (mock data)
-   - `app-tree`: selectable vehicle features/packages/preferences taxonomy
-   - `app-accordion` + `app-accordion-item`: FAQs or finance explanations
-   - `app-dialog` + `app-drawer`: confirmation, review panel, or inventory details
-   - `app-empty-state`: no inventory matches / no saved draft state
-   - `app-toast`: submit/draft feedback
+## Form Requirements (Quick Add Task Form)
+This feature includes a form and MUST have visible validation UX.
 
-10. **Tailwind + Accessibility**
-    - Tailwind CSS utilities should be used for styling (avoid custom CSS unless necessary).
-    - Maintain clear focus states, labels, aria attributes, keyboard navigation, and readable contrast.
-    - Avoid generic boilerplate layouts; make the form visually intentional and polished.
+1. Form Fields
+- `title`: text input for task title
 
-11. **Routing**
-    - Feature route should be `/used-car-inquiry`.
-    - Default route (`/`) must redirect to `/used-car-inquiry`.
+2. Validation Rules
+- `title` is required
+- `title` minimum length is 3 characters
+- `title` maximum length is 80 characters
+- Trim whitespace before submit; a whitespace-only value is invalid
 
-12. **Optional Nice-to-Have**
-    - Persist draft form values in `localStorage`.
-    - Show unsaved-changes indicator.
-    - Add a printable summary section.
+3. Submit Behavior
+- Submit button label: `Add Task`
+- Prevent submit when invalid
+- Show inline validation message under the field after the user touches the field or after submit attempt
+- Clear the input after a successful submit
+- Keep focus behavior practical (focus remains in the input so multiple tasks can be added quickly)
+
+## Task List Behavior Requirements
+- Newly added tasks appear in the list immediately without page reload
+- Each task row includes:
+  - completion checkbox
+  - task title text
+  - delete action
+- Toggling completion updates the UI immediately
+- Completed tasks must have a visual completed style (e.g., muted text + line-through)
+- Deleting a task removes it immediately
+
+## Filtering & Counts
+- Provide filters: `All`, `Active`, `Completed`
+- Default selected filter is `All`
+- Show counts in the Home page header:
+  - total tasks
+  - active tasks
+  - completed tasks
+- Empty state message must change depending on context:
+  - no tasks created yet
+  - no tasks in selected filter
+
+## State Management Requirements
+- Use Angular Signals for core feature state (`signal`, `computed`)
+- Do not use `[(ngModel)]`
+- Use a typed Reactive Form for the quick add form
+- No backend/API required for this story (in-memory state only)
+
+## Required Shared UI Selectors (must be used meaningfully)
+- `app-button`
+- `app-card`
+- `app-text-input`
+- `app-checkbox`
+- `app-empty-state`
+- `app-badge`
+
+## Accessibility & UX Requirements
+- Use semantic landmarks (`header`, `main`, `section`, `nav`) where appropriate
+- Home filter controls must expose clear active state (visually and accessible label/state)
+- Add-task form must expose validation errors visibly in text (not color-only)
+- Buttons and interactive controls must have clear text or accessible labels
+- Empty state must be readable and actionable (guide the user to add a task)
+
+## Styling Suggestions (Tailwind-first, intentional visual direction)
+Design direction: warm, editorial, clean, high-contrast, light theme.
+
+- Landing page:
+  - Background should not be flat white; use a soft gradient or layered shapes
+  - Large bold headline with strong typographic hierarchy
+  - Feature highlight cards in a responsive grid (stack on mobile)
+  - Primary CTA should be visually dominant
+- Home page:
+  - Use a centered content column with comfortable spacing
+  - Use cards/panels to separate quick-add form and task list
+  - Use badges for counts/status summaries
+  - Completed tasks should visually recede without becoming hard to read
+- Motion:
+  - Small entry/reveal transitions are okay
+  - Respect reduced-motion preferences
+- Responsive behavior:
+  - Must work well on mobile and desktop
+  - Mobile layout should keep the quick add form and filters easy to tap
+
+## Explicit Styling Constraints
+- Use Tailwind utility classes (avoid custom CSS unless necessary)
+- Keep feature component CSS minimal or empty
+- Avoid generic default-looking layouts; make the landing page feel designed
+
+## Acceptance Criteria
+- Visiting `/` shows the landing page first
+- Landing page CTA navigates to `/home`
+- `/home` renders the to-do application UI
+- User can add a valid task
+- Invalid task submit shows validation feedback
+- User can mark a task complete/incomplete
+- User can delete a task
+- Filters (All/Active/Completed) correctly change the displayed list
+- Counts update correctly when tasks are added/completed/deleted
+- Empty state appears when no tasks exist and when a filter has no matching tasks
+- Shared UI selectors listed above are present in meaningful feature UI locations

@@ -226,7 +226,7 @@ The orchestrator creates a single `ChatOpenAI` instance and reuses it across age
 
 Current hardcoded config in `orchestrator/src/index.ts`:
 
-- Model: `gpt-4o-2024-08-06`
+- Model: `gpt-5-nano`
 - Temperature: `0`
 
 Token usage is tracked via LangChain callbacks and printed after the workflow completes.
@@ -656,7 +656,7 @@ If you see similar path-assumption issues:
 
 ### Hardcoded model
 
-- `gpt-4o-2024-08-06` is hardcoded in `orchestrator/src/index.ts`
+- `gpt-5-nano` is hardcoded in `orchestrator/src/index.ts`
 - No env var override yet
 
 ### Windows-specific command assumptions in deterministic checks

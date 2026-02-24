@@ -2,3 +2,5 @@ orchestrator/.env
 orchestrator/node_modules
 generated-app/node_modules
 generated-app-stale-20260222-130546/node_modules/jsdom/lib/jsdom/living/generated/ErrorEventInit.js
+orchestrator_py/.env
+generated-app
