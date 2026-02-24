@@ -7,6 +7,11 @@ from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGET_DIR = (REPO_ROOT / "generated-app").resolve()
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+MAX_TOOL_COMMAND_OUTPUT_CHARS = 24_000
+SUCCESS_STDOUT_MAX_CHARS = 18_000
+FAILURE_STDOUT_MAX_CHARS = 8_000
+FAILURE_STDERR_MAX_CHARS = 16_000
 
 
 def reject_unsafe_agent_command(command: str) -> str | None:
@@ -40,6 +45,32 @@ def reject_unsafe_agent_command(command: str) -> str | None:
     return None
 
 
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def _truncate_text_for_tool_output(text: str, *, max_chars: int, tail_bias: float = 0.7) -> str:
+    if len(text) <= max_chars:
+        return text
+
+    max_chars = max(max_chars, 512)
+    tail_chars = int(max_chars * tail_bias)
+    head_chars = max_chars - tail_chars
+    head = text[:head_chars].rstrip()
+    tail = text[-tail_chars:].lstrip()
+    omitted = len(text) - len(head) - len(tail)
+    return (
+        f"{head}\n\n"
+        f"...[output truncated: omitted {omitted} chars; showing head+tail for token efficiency]...\n\n"
+        f"{tail}"
+    )
+
+
+def _prepare_command_output(text: str, *, max_chars: int) -> str:
+    sanitized = _strip_ansi(text.replace("\r\n", "\n").replace("\r", "\n"))
+    return _truncate_text_for_tool_output(sanitized, max_chars=max_chars)
+
+
 def write_code(file_path: str, content: str, *, target_dir: Path = TARGET_DIR) -> str:
     full_path = (target_dir / file_path).resolve()
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,11 +99,14 @@ def run_command(command: str, *, target_dir: Path = TARGET_DIR) -> str:
             text=True,
             capture_output=True,
         )
-        return f"Command succeeded:\n{output.stdout}"
+        stdout = _prepare_command_output(output.stdout or "", max_chars=SUCCESS_STDOUT_MAX_CHARS)
+        response = f"Command succeeded:\n{stdout}"
+        return _truncate_text_for_tool_output(response, max_chars=MAX_TOOL_COMMAND_OUTPUT_CHARS)
     except subprocess.CalledProcessError as exc:
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-        return f"Command failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+        stdout = _prepare_command_output(exc.stdout or "", max_chars=FAILURE_STDOUT_MAX_CHARS)
+        stderr = _prepare_command_output(exc.stderr or "", max_chars=FAILURE_STDERR_MAX_CHARS)
+        response = f"Command failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+        return _truncate_text_for_tool_output(response, max_chars=MAX_TOOL_COMMAND_OUTPUT_CHARS)
 
 
 def build_langchain_tools(*, target_dir: Path = TARGET_DIR) -> list[object]:
@@ -111,4 +145,3 @@ __all__ = [
     "run_command",
     "write_code",
 ]
-

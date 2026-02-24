@@ -46,7 +46,8 @@ LAST_WORK_ORDER_PATH = (PY_ORCHESTRATOR_DIR / "last-work-order.md").resolve()
 LAST_VALIDATION_PATH = (PY_ORCHESTRATOR_DIR / "last-validation-feedback.md").resolve()
 
 TEMPLATE_COPY_IGNORES = {"node_modules", "dist", ".angular", ".git"}
-DEFAULT_MODEL = "gpt-5-nano"
+DEFAULT_MODEL = "gpt-4.1-nano"
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 PLANNER_RULES_BLOCK = """Create a detailed Work Order (Markdown) for the Development Agent following the Vertical Slicing Architecture.
@@ -181,6 +182,11 @@ class TokenCounters:
 
 
 TOKENS = TokenCounters()
+MAX_TOTAL_TOKENS_BUDGET: int | None = None
+
+
+class TokenBudgetExceededError(RuntimeError):
+    pass
 
 
 class AgentStateDict(TypedDict):
@@ -425,7 +431,7 @@ def setup_project(*, target_dir: Path = TARGET_DIR) -> None:
                     )
                     reset_generated_app_preserving_node_modules(target_dir=target_dir)
 
-    shutil.copytree(TEMPLATE_DIR, target_dir, ignore=_copytree_ignore)
+    shutil.copytree(TEMPLATE_DIR, target_dir, ignore=_copytree_ignore, dirs_exist_ok=True)
 
     print("Installing dependencies in generated-app...")
     subprocess.run("npm install", cwd=target_dir, shell=True, check=True)
@@ -695,6 +701,10 @@ def collect_line_violations(relative_path: str, content: str, regex: re.Pattern[
     return violations
 
 
+def _sanitize_subprocess_text(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def run_deterministic_command(command: str, *, target_dir: Path = TARGET_DIR) -> DeterministicCommandResult:
     try:
         result = subprocess.run(
@@ -706,12 +716,17 @@ def run_deterministic_command(command: str, *, target_dir: Path = TARGET_DIR) ->
             capture_output=True,
             timeout=180,
         )
-        return DeterministicCommandResult(command=command, ok=True, output=result.stdout)
+        stdout = _sanitize_subprocess_text(result.stdout or "")
+        stderr = _sanitize_subprocess_text(result.stderr or "")
+        combined = stdout if not stderr.strip() else f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+        return DeterministicCommandResult(command=command, ok=True, output=combined)
     except subprocess.CalledProcessError as exc:
+        stdout = _sanitize_subprocess_text(exc.stdout or "")
+        stderr = _sanitize_subprocess_text(exc.stderr or "")
         return DeterministicCommandResult(
             command=command,
             ok=False,
-            output=f"STDOUT:\n{exc.stdout or ''}\nSTDERR:\n{exc.stderr or ''}".strip(),
+            output=f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip(),
         )
 
 
@@ -983,6 +998,14 @@ def _build_llm():
             TOKENS.total_tokens += total
             TOKENS.prompt_tokens += prompt
             TOKENS.completion_tokens += completion
+            if MAX_TOTAL_TOKENS_BUDGET is not None and TOKENS.total_tokens > MAX_TOTAL_TOKENS_BUDGET:
+                raise TokenBudgetExceededError(
+                    "Token budget exceeded. "
+                    f"Limit={MAX_TOTAL_TOKENS_BUDGET}, "
+                    f"observed_total={TOKENS.total_tokens}, "
+                    f"prompt={TOKENS.prompt_tokens}, completion={TOKENS.completion_tokens}. "
+                    "The current LLM call may push slightly past the cap before the workflow can stop."
+                )
 
     return ChatOpenAI(model=DEFAULT_MODEL, temperature=0, callbacks=[TokenCallback()])
 
@@ -1164,7 +1187,23 @@ def _should_continue(state: AgentStateDict) -> Literal["developer", "END"]:
     return "developer"
 
 
-def run_full_workflow() -> None:
+def _reset_token_counters() -> None:
+    TOKENS.total_tokens = 0
+    TOKENS.prompt_tokens = 0
+    TOKENS.completion_tokens = 0
+
+
+def _print_token_usage() -> None:
+    print("\n--- TOKEN USAGE ---")
+    print(f"Prompt Tokens:     {TOKENS.prompt_tokens}")
+    print(f"Completion Tokens: {TOKENS.completion_tokens}")
+    print(f"Total Tokens:      {TOKENS.total_tokens}")
+
+
+def run_full_workflow(*, max_total_tokens: int | None = None) -> None:
+    global MAX_TOTAL_TOKENS_BUDGET
+    _reset_token_counters()
+    MAX_TOTAL_TOKENS_BUDGET = max_total_tokens
     load_dotenv()
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is required. Set it in orchestrator_py/.env or orchestrator/.env.")
@@ -1199,21 +1238,23 @@ def run_full_workflow() -> None:
         "iterations": 0,
     }
 
-    llm = _build_llm()
-    print("\nStarting Agentic Workflow...")
+    if max_total_tokens is not None:
+        print(f"Token budget enabled for this run: max total tokens = {max_total_tokens}")
 
-    state.update(_planner_node(state, llm, SystemMessage))
-    while True:
-        dev_update = _developer_node(state, llm, HumanMessage, SystemMessage)
-        state["iterations"] += int(dev_update.get("iterations", 0))
-        state.update(_validator_node(state, llm, HumanMessage, SystemMessage))
-        if _should_continue(state) == "END":
-            break
+    try:
+        llm = _build_llm()
+        print("\nStarting Agentic Workflow...")
 
-    print("\n--- TOKEN USAGE ---")
-    print(f"Prompt Tokens:     {TOKENS.prompt_tokens}")
-    print(f"Completion Tokens: {TOKENS.completion_tokens}")
-    print(f"Total Tokens:      {TOKENS.total_tokens}")
+        state.update(_planner_node(state, llm, SystemMessage))
+        while True:
+            dev_update = _developer_node(state, llm, HumanMessage, SystemMessage)
+            state["iterations"] += int(dev_update.get("iterations", 0))
+            state.update(_validator_node(state, llm, HumanMessage, SystemMessage))
+            if _should_continue(state) == "END":
+                break
+    finally:
+        _print_token_usage()
+        MAX_TOTAL_TOKENS_BUDGET = None
 
 
 def run_self_test() -> None:
@@ -1333,6 +1374,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Only run template setup (clone template to generated-app + npm install), then exit.",
     )
+    parser.add_argument(
+        "--max-total-tokens",
+        "--max-tokens",
+        dest="max_total_tokens",
+        type=int,
+        default=None,
+        help=(
+            "Optional hard-stop budget for observed total LLM tokens across the workflow. "
+            "If exceeded, the orchestrator aborts after the current model call."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1346,11 +1398,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.setup_only:
             setup_project(target_dir=TARGET_DIR)
             return 0
-        run_full_workflow()
+        if args.max_total_tokens is not None and args.max_total_tokens <= 0:
+            raise RuntimeError("--max-total-tokens must be a positive integer")
+        run_full_workflow(max_total_tokens=args.max_total_tokens)
         return 0
     except KeyboardInterrupt:
         print("Interrupted.")
         return 130
+    except TokenBudgetExceededError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

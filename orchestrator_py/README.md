@@ -1,8 +1,8 @@
-# Angular Agentic Orchestrator README
+# Angular Agentic Orchestrator (Python Version) README
 
-This document explains how the local `orchestrator/` works, what it requires, what it reads/writes, and how to run/debug it safely.
+This document explains how the local `orchestrator_py/` works, what it requires, what it reads/writes, and how to run/debug it safely.
 
-It is based on the actual implementation in `orchestrator/src/index.ts` and `orchestrator/src/tools.ts` (not just intended behavior).
+It is based on the actual implementation in `orchestrator_py/index.py` and `orchestrator_py/tools.py` (not just intended behavior). This is the Python equivalent of the TypeScript orchestrator.
 
 ## What This Orchestrator Does
 
@@ -17,8 +17,8 @@ The orchestrator is a local multi-agent workflow runner that:
 
 It uses:
 
-- LangGraph (`@langchain/langgraph`) for the state graph
-- OpenAI chat model via `@langchain/openai`
+- LangGraph (`langgraph`) for the state graph
+- OpenAI chat model via `langchain-openai`
 - A local tool layer (`read_file`, `write_code`, `run_command`) scoped to `generated-app/`
 - Deterministic pre-validation checks (build/test + code scans) before the LLM validator
 
@@ -29,46 +29,33 @@ The orchestrator code assumes this repo structure exists:
 - `automate-angular-template/` (source Angular template)
 - `ai-angular-blueprint.txt` (global build guidance)
 - `instructions.md` (global workflow instructions)
-- `orchestrator/user-story.md` (feature request input)
-- `orchestrator/skills/angular-orchestrator-v20-v21/...` (local skill pack + references)
+- `orchestrator/user-story.md` (feature request input - shared with the Node version)
+- `orchestrator/skills/angular-orchestrator-v20-v21/...` (local skill pack + references - shared with the Node version)
 
-The pathing is relative and hardcoded in `orchestrator/src/index.ts`, so moving folders will break runs unless you update the code.
+The pathing is relative and hardcoded in `orchestrator_py/index.py`, so moving folders will break runs unless you update the code.
 
 ## What Is Required To Run It
 
-### 1. Node.js + npm
+### 1. Python + Node.js
 
-You need a modern Node.js version compatible with:
-
-- `tsx` (used by `orchestrator`)
-- Angular 21 template tooling in `automate-angular-template`
-
-Practical recommendation:
-
-- Node.js 20+ (recommended)
+You need:
+- Python 3.10+ (recommended)
+- Node.js 20+ (required for the Angular template tooling in `automate-angular-template`)
 - npm available on PATH
 
 Notes:
-
-- `orchestrator/package.json` uses `tsx src/index.ts`
-- The generated Angular app runs `ng build` / `ng test` via npm scripts
-- The template `package.json` currently declares `packageManager: npm@11.6.0`
+- The orchestrator itself runs in Python.
+- The generated Angular app runs `ng build` / `ng test` via npm scripts.
 
 ### 2. OpenAI API Key (Required)
 
-The orchestrator loads environment variables from `orchestrator/.env` using `dotenv`.
+The orchestrator loads environment variables from `orchestrator_py/.env` using `python-dotenv`.
 
 Required variable:
 
 - `OPENAI_API_KEY`
 
-`orchestrator/.env.example` currently contains:
-
-```env
-OPENAI_API_KEY=xxx
-```
-
-Create `orchestrator/.env` and set a real key:
+Create `orchestrator_py/.env` and set a real key:
 
 ```env
 OPENAI_API_KEY=your_real_key_here
@@ -77,7 +64,7 @@ OPENAI_API_KEY=your_real_key_here
 Important:
 
 - Do not commit real API keys.
-- The orchestrator code does not currently expose model selection via env; the model is hardcoded in `orchestrator/src/index.ts`.
+- The orchestrator code does not currently expose model selection via env; the model is hardcoded in `orchestrator_py/index.py`.
 
 ### 3. Network Access (Required)
 
@@ -95,8 +82,8 @@ The orchestrator needs permission to:
 - Delete/recreate `generated-app/`
 - Write to:
   - `generated-app/**`
-  - `orchestrator/last-work-order.md`
-  - `orchestrator/last-validation-feedback.md`
+  - `orchestrator_py/last-work-order.md`
+  - `orchestrator_py/last-validation-feedback.md`
 - Install npm dependencies in `generated-app/node_modules`
 
 ### 5. Runtime Cost/Time Budget (Practical Requirement)
@@ -115,11 +102,13 @@ The orchestrator prints token usage totals at the end of a run.
 
 From the repo root:
 
-1. Install orchestrator dependencies
+1. Create a virtual environment and install Python dependencies
 
 ```powershell
-cd orchestrator
-npm install
+cd orchestrator_py
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 2. Create your env file
@@ -127,22 +116,23 @@ npm install
 ```powershell
 Copy-Item .env.example .env
 ```
+*(If `.env.example` doesn't exist, just create `.env` manually)*
 
-3. Edit `orchestrator/.env` and set `OPENAI_API_KEY`
+3. Edit `orchestrator_py/.env` and set `OPENAI_API_KEY`
 
-4. Edit `orchestrator/user-story.md` with the feature request
+4. Edit `orchestrator/user-story.md` with the feature request (Note: it reads the user story from the `orchestrator` folder)
 
 5. Run the orchestrator
 
 ```powershell
-npm start
+python index.py
 ```
 
 6. Inspect outputs
 
 - Generated app: `generated-app/`
-- Last work order: `orchestrator/last-work-order.md`
-- Last validation feedback: `orchestrator/last-validation-feedback.md`
+- Last work order: `orchestrator_py/last-work-order.md`
+- Last validation feedback: `orchestrator_py/last-validation-feedback.md`
 
 ## How The Orchestrator Works (Detailed)
 
@@ -160,7 +150,7 @@ Graph flow:
 - `validator -> END` on PASS or max iterations reached
 - `validator -> developer` on failure (retry loop)
 
-The graph is compiled and invoked in `main()` from `orchestrator/src/index.ts`.
+The graph is compiled and invoked in `main()` from `orchestrator_py/index.py`.
 
 ## Step 1: Template Setup (`setupProject()`)
 
@@ -193,7 +183,7 @@ The copy excludes these directories when cloning the template:
 - `.angular`
 - `.git`
 
-This is controlled by `TEMPLATE_COPY_IGNORES` in `orchestrator/src/index.ts`.
+This is controlled by `TEMPLATE_COPY_IGNORES` in `orchestrator_py/index.py`.
 
 ### Cleanup Fallbacks (If `generated-app` Is Locked)
 
@@ -224,7 +214,7 @@ Current behavior:
 
 The orchestrator creates a single `ChatOpenAI` instance and reuses it across agents.
 
-Current hardcoded config in `orchestrator/src/index.ts`:
+Current hardcoded config in `orchestrator_py/index.py`:
 
 - Model: `gpt-4.1-nano`
 - Temperature: `0`
@@ -234,7 +224,7 @@ Token usage is tracked via LangChain callbacks and printed after the workflow co
 Important limitation:
 
 - There is no CLI flag or env var for model selection yet.
-- To change the model, edit `orchestrator/src/index.ts`.
+- To change the model, edit `orchestrator_py/index.py`.
 
 ## Step 4: Planner Agent (`plannerNode`)
 
@@ -252,7 +242,7 @@ It must produce a Markdown Work Order for vertical-slice implementation.
 
 The planner writes the final Work Order to:
 
-- `orchestrator/last-work-order.md`
+- `orchestrator_py/last-work-order.md`
 
 ### Planner Self-Correction Loop (Built In)
 
@@ -274,7 +264,7 @@ If quality checks fail, the orchestrator feeds the issues back into the planner 
 
 ## Step 5: Developer Agent (`developerNode`)
 
-The Developer agent is a LangGraph React agent (`createReactAgent`) with local tools.
+The Developer agent is a LangGraph React agent (`create_react_agent`) with local tools.
 
 It receives:
 
@@ -406,7 +396,7 @@ If that specific false-positive pattern is detected, the orchestrator can conver
 
 The normalized validator result is written to:
 
-- `orchestrator/last-validation-feedback.md`
+- `orchestrator_py/last-validation-feedback.md`
 
 ## Looping / Retry Behavior
 
@@ -421,7 +411,7 @@ Max workflow iterations are dynamic:
 - Complex shared UI coverage stories: `7`
 - Complex shared UI + form validation stories: `8`
 
-Complexity is inferred from user-story selector count and form-validation requirements.
+Complexity is inferred from user story selector count and form-validation requirements.
 
 ## Agent State (LangGraph State)
 
@@ -438,7 +428,7 @@ The orchestrator stores this shared state in the graph:
 
 ## Local Tooling Available To Developer/Validator Agents
 
-Defined in `orchestrator/src/tools.ts`:
+Defined in `orchestrator_py/tools.py`:
 
 - `write_code`
 - `read_file`
@@ -470,7 +460,7 @@ Some commands are explicitly rejected to avoid long-running locks or recursive o
 
 - `npm start`
 - `ng serve`
-- recursive orchestrator invocation (`tsx ... orchestrator ...`)
+- recursive orchestrator invocation (`python ... orchestrator_py ...`)
 - watch-mode commands unless they explicitly use `--watch=false`
 
 This is especially important because `ng serve` can lock files and break template reset/delete behavior.
@@ -505,8 +495,8 @@ Generated app and build outputs:
 
 Planner/validator artifacts:
 
-- `orchestrator/last-work-order.md`
-- `orchestrator/last-validation-feedback.md`
+- `orchestrator_py/last-work-order.md`
+- `orchestrator_py/last-validation-feedback.md`
 
 Potential fallback archive on deletion failure:
 
@@ -535,21 +525,17 @@ The current sample `orchestrator/user-story.md` is a good reference for level of
 ### First-time setup (or after dependency changes)
 
 ```powershell
-cd orchestrator
-npm install
+cd orchestrator_py
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ### Run the orchestrator
 
 ```powershell
-cd orchestrator
-npm start
-```
-
-Under the hood, this executes:
-
-```powershell
-tsx src/index.ts
+cd orchestrator_py
+python index.py
 ```
 
 ## Expected Console Output (High-Level)
@@ -577,7 +563,7 @@ Symptoms:
 
 Fixes:
 
-- Ensure `orchestrator/.env` exists
+- Ensure `orchestrator_py/.env` exists
 - Ensure `OPENAI_API_KEY` is valid
 - Restart the run after updating `.env`
 
@@ -623,7 +609,7 @@ Cause:
 
 Fix:
 
-- Read `orchestrator/last-validation-feedback.md`
+- Read `orchestrator_py/last-validation-feedback.md`
 - Fix cited file paths/issues in `generated-app/`
 - Rerun orchestrator (or patch the template/prompt if the issue is reusable)
 
@@ -635,13 +621,13 @@ Symptoms:
 
 Fixes:
 
-- Inspect `orchestrator/last-work-order.md` for planning gaps
-- Inspect `orchestrator/last-validation-feedback.md` for recurring failure patterns
+- Inspect `orchestrator_py/last-work-order.md` for planning gaps
+- Inspect `orchestrator_py/last-validation-feedback.md` for recurring failure patterns
 - If the failure is reusable, patch:
   - `automate-angular-template/`
   - `instructions.md`
   - `ai-angular-blueprint.txt`
-  - `orchestrator` prompts/checks
+  - `orchestrator_py` prompts/checks
 
 ## 6) LLM validator false-positive on shared UI paths
 
@@ -649,14 +635,14 @@ The orchestrator already normalizes one known false-positive where selectors (`a
 
 If you see similar path-assumption issues:
 
-- Improve validator prompt wording in `orchestrator/src/index.ts`
+- Improve validator prompt wording in `orchestrator_py/index.py`
 - Prefer validating imports/selectors instead of guessed filesystem paths
 
 ## Current Limitations / Design Constraints
 
 ### Hardcoded model
 
-- `gpt-4.1-nano` is hardcoded in `orchestrator/src/index.ts`
+- `gpt-4.1-nano` is hardcoded in `orchestrator_py/index.py`
 - No env var override yet
 
 ### Windows-specific command assumptions in deterministic checks
@@ -666,7 +652,7 @@ Deterministic validation uses:
 - `npm.cmd run build`
 - `npm.cmd run test -- --watch=false`
 
-This is Windows-friendly, but if you run cross-platform and encounter issues, you may need to make command selection OS-aware in `orchestrator/src/index.ts`.
+This is Windows-friendly, but if you run cross-platform and encounter issues, you may need to make command selection OS-aware in `orchestrator_py/index.py`.
 
 ### No CLI flags for run-time options
 
@@ -688,14 +674,14 @@ Each run starts by rebuilding `generated-app/` from the template and running `np
 
 If you want to change behavior, these are the key files:
 
-- `orchestrator/src/index.ts`
+- `orchestrator_py/index.py`
   - graph flow
   - prompts
   - deterministic checks
   - model config
   - iteration logic
   - setup/reset behavior
-- `orchestrator/src/tools.ts`
+- `orchestrator_py/tools.py`
   - tool definitions
   - command restrictions
 - `orchestrator/user-story.md`
@@ -729,8 +715,8 @@ Keep secrets in `.env` only (and never commit real values).
 
 Before running:
 
-- `orchestrator/.env` exists with `OPENAI_API_KEY`
-- `orchestrator/node_modules` installed (`npm install` in `orchestrator/`)
+- `orchestrator_py/.env` exists with `OPENAI_API_KEY`
+- `orchestrator_py` dependencies installed (`pip install -r requirements.txt`)
 - `orchestrator/user-story.md` updated
 - `automate-angular-template/` is in a good state
 - No running dev server locking `generated-app/`
@@ -740,8 +726,7 @@ Before running:
 After running:
 
 - Inspect `generated-app/`
-- Inspect `orchestrator/last-work-order.md`
-- Inspect `orchestrator/last-validation-feedback.md`
+- Inspect `orchestrator_py/last-work-order.md`
+- Inspect `orchestrator_py/last-validation-feedback.md`
 - Review console token usage summary
 - If failures recur, classify as `Feature-level` vs `Template/Agent-level` and patch upstream where appropriate
-

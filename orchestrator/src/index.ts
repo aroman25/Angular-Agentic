@@ -805,7 +805,7 @@ const AgentState = Annotation.Root({
 
 // 3. Initialize LLM
 const llm = new ChatOpenAI({ 
-  model: "gpt-5-nano", 
+  model: "gpt-4.1-nano", 
   temperature: 0,
   callbacks: [
     {

@@ -1,267 +1,240 @@
 # Work Order: Two-Page To-Do Application (Landing + Home)
 
-Feature Name & Goal
-- Name: Two-Page To-Do Application (Landing + Home)
-- Goal: Deliver a polished, production-ready two-page Angular v20/v21 app. The first page is a marketing-like landing page at “/”, the second page is a functional to-do home at “/home”. The landing page must load first and provide a clear CTA to navigate to the Home page. The Home page must allow adding, completing, filtering, and deleting tasks with accessible, responsive UI using the shared UI primitives.
+---
 
-Assumptions: If anything about visuals or exact copy is ambiguous, default to the guidance in the UI/UX Requirements and use the shared UI components to maintain consistency.
+## Feature Name & Goal
+**Feature Name:** Two-Page To-Do App with Landing and Home Pages  
+**Goal:** Develop a polished, production-ready two-page Angular application for personal task management, featuring a marketing landing page and an interactive to-do list with filtering, validation, and accessible UI, using Angular v20/v21 best practices and signals-based state management.
 
-CRITICAL INSTRUCTION: Overwrite the default Angular boilerplate to make the landing page the default route:
-- Overwrite src/app/app.html to render a layout or just <router-outlet />.
-- Overwrite src/app/app.routes.ts to set the default route path: '' to redirect or load the landing route, and ensure the '/home' route exists.
-- If you overwrite app.html, also update src/app/app.ts to remove NgOptimizedImage from the imports if not used, and remove related tests in app.spec.ts that expect the default h1 element.
+---
 
-Automated compatibility: The work must be compatible with Angular v20 and v21 templates, with a preference for zoneless patterns as described in the blueprint. Standalone components are the default in both versions.
+## User Story Data Points
 
-User Story Data Points (extract exact routes, field lists/options, required selectors, validation rules, and acceptance-critical constraints)
-Routes and Navigation
-- Landing page route: /
-- Home page route: /home
-- Default initial load route: Landing page (path: '')
-- Landing CTA: Primary CTA button labeled "Start Organizing" navigates to /home
-- Landing secondary CTA: "View Demo Tasks" navigates to /home
-- Home page navigation: A method to navigate back to / (button or link)
+### Routes & Navigation
+- `/` (Landing page): Marketing content with CTA to `/home`
+- `/home` (To-Do app): Task management interface
+- Initial load: Show `/` (landing page)
+- Navigation:
+  - Landing page CTA button: "Start Organizing" → `/home`
+  - Home page: Button/link to return to `/` (e.g., "Back to Welcome")
 
-Data Model (Front-End Only)
-- Task
-  - id: string
-  - title: string
-  - completed: boolean
-  - createdAt: string or number (timestamp)
+### Landing Page Content
+- Hero heading: Clear benefit-driven message (e.g., "Organize Your Tasks Effortlessly")
+- Supporting description: 1-2 sentences explaining the app
+- Primary CTA button: "Start Organizing" (navigates to `/home`)
+- Secondary CTA/link: "View Demo Tasks" (navigates to `/home`)
+- 3 feature highlights (e.g., quick capture, progress tracking, focused lists)
+- Trust/benefit row:
+  - "Local-only demo state"
+  - "No sign-in required"
+  - "Fast keyboard-friendly"
 
-Form (Quick Add Task)
-- Field: title (text input)
-- Validation Rules (triggered before submit; visible UX)
-  - Required
-  - Minimum length: 3 characters
-  - Maximum length: 80 characters
-  - Before submit: trim whitespace; a whitespace-only value is invalid
-- Submit Behavior
-  - Button label: Add Task
-  - Submit disabled when form invalid
-  - Inline validation messages displayed after field is touched or after submit attempt
-  - On successful submit: input cleared; focus remains on the input
-- Behavior notes: Bridge non-CVA UI controls to the Form via value/valueChange bindings
+### To-Do Data Model (Front-End Only)
+Each task:
+- `id`: string
+- `title`: string
+- `completed`: boolean
+- `createdAt`: string (ISO date/time) or number (timestamp)
 
-Task List & Actions
-- Each task row displays:
-  - Completion checkbox
-  - Title text
-  - Delete action
-- Toggling completion updates immediately
-- Completed tasks visually muted and struck-through
-- Deleting a task updates immediately
+### Home Page UI & Behavior
+- Header:
+  - Page title: "My Tasks"
+  - Counts:
+    - Total tasks
+    - Active tasks
+    - Completed tasks
+- Quick add task form:
+  - `title` input (text)
+  - Submit button: "Add Task"
+  - Validation:
+    - Required
+    - Min length: 3
+    - Max length: 80
+    - Trim whitespace before submit
+    - Inline validation messages after touch or submit attempt
+- Filter controls:
+  - Buttons/links: All, Active, Completed
+  - Default: All
+  - Active state visually and aria-label
+- Task list:
+  - Each task:
+    - Checkbox for completion
+    - Task title text
+    - Delete button
+  - Visual style:
+    - Completed tasks: muted + line-through
+- Empty state:
+  - When no tasks exist or filter yields no results
+  - Message varies:
+    - "No tasks yet. Add your first task!"
+    - "No active tasks."
+    - "No completed tasks."
 
-Filters and Counts
-- Filters: All, Active, Completed
-- Default filter: All
-- Header on Home page includes counts:
-  - total tasks
-  - active tasks
-  - completed tasks
-- Empty state messaging:
-  - When no tasks exist: “No tasks yet — add one to get started.”
-  - When filter yields no results: “No tasks match this filter.”
+---
 
-Accessibility & UX
-- Semantic landmarks: header, main, section, nav
-- Filter controls: clear active state (visual + ARIA)
-- ValidationErrors: visible text under the input
-- All interactive controls have accessible labels
-- Empty state is readable and actionable, guiding task creation
+## Requirement Traceability
 
-Shared UI Selectors (must be used meaningfully)
-- app-button
-- app-card
-- app-text-input
-- app-checkbox
-- app-empty-state
-- app-badge
+| User Story Requirement | Implementation Task | Acceptance Criteria |
+|--------------------------|-----------------------|---------------------|
+| Landing page at `/` with CTA to `/home` | Create `LandingPageComponent`, set route `/` | Landing page loads first, CTA navigates to `/home` |
+| `/home` route with task management UI | Create `HomePageComponent`, set route `/home` | Navigates correctly, displays task UI |
+| Show hero heading, description, features, trust row | Implement in `LandingPageComponent` template | Content appears styled, CTA navigates properly |
+| Task data model with `id`, `title`, `completed`, `createdAt` | Define `Task` interface, manage in signals | Tasks stored in signal array, unique IDs assigned |
+| Add task form with validation | Use Reactive Form with validators, bind to `app-text-input` | Validation errors shown inline, submit disabled if invalid |
+| Clear input after successful add | Reset form control, focus remains in input | Task appears immediately in list |
+| Toggle completion checkbox | Bind to task `completed` property via signals | UI updates instantly, style updates accordingly |
+| Delete task button | Remove task from signal array | Task disappears immediately |
+| Filter controls (All, Active, Completed) | Use signals for filter state, computed for filtered list | List updates on filter change, counts update |
+| Counts display | Computed signals for total, active, completed | Counts reflect current task list accurately |
+| Empty state messages | Conditional rendering based on filtered list | Appropriate message shown when no tasks |
+| Accessibility | Use semantic landmarks, aria-labels, focus management | All controls accessible, validation messages visible |
 
-UI/UX Requirements
-- Landing Page
-  - Warm, editorial styling with a gradient/layered shapes background
-  - Hero heading with benefit-driven message
-  - Short supporting description (1-2 sentences)
-  - Primary CTA: "Start Organizing" -> /home
-  - Secondary CTA: "View Demo Tasks" -> /home
-  - 3 feature highlights (e.g., quick capture, progress tracking, focused lists)
-  - Small trust/benefit row (Local-only demo state, No sign-in required, Fast keyboard-friendly)
-- Home Page
-  - Centered content column
-  - Card-based sections: Quick Add form, Task list
-  - Badges for counts
-  - Visual cue for completed tasks (muted, line-through)
-  - Tailwind-based styling with utility classes
-  - Focus management and accessible, keyboard-friendly controls
-- Patterns (Template Pattern Catalog)
-  - Template Pattern References: layout-page-shell-header-toolbar, form-mixed-controls-create-edit
-  - Rationale: landing page layout and a form-driven create/edit page pattern
-  - If pattern use deviates, include Deviation Notes (document rationale)
+---
 
-State Management
-- Use Signals for local state
-- Computed for derived state (counts, filtered lists)
-- No mutation of signals; use update() or set()
-- Feature-specific signals:
-  - Home page: tasks signal (Task[]), filter signal ('all'|'active'|'completed'), and derived computed lists
-  - Quick Add form: Reactive Form with typed FormControl<string> for title
-- Form bridge: For non-CVA controls (shared UI like app-text-input), bind [value] to FormControl.value and (valueChange) to update the FormControl
+## File Structure
 
-Form Model & Validation (Typed Reactive Forms)
-- Use ReactiveFormsModule
-- Form: taskForm
-  - title: FormControl<string> with:
-    - nonNullable: true
-    - Validators: [Validators.required, trimmedLengthRange(3, 80)]
-- Custom Validator: trimmedLengthRange(min: number, max: number): ValidatorFn
-  - Validates the trimmed length between min and max
-  - Provides meaningful errors for minLengthTrim and maxLengthTrim
-- Validation UI:
-  - Inline error text shown when field touched or on submit attempt
-- Submit behavior:
-  - On valid submit: add Task to tasks signal with generated id and createdAt timestamp, clear title field, focus back to input
-  - Disable submit when invalid or pending
-- Non-CVA bridge strategy for app-text-input:
-  - Bind [value]="taskForm.controls.title.value"
-  - Bind (valueChange)="taskForm.controls.title.setValue($event)"
-  - Normalize value in TS (trim before adding to list)
+```
+src/
+├── app/
+│   ├── pages/
+│   │   ├── landing/
+│   │   │   ├── landing-page.component.ts
+│   │   │   ├── landing-page.component.html
+│   │   │   └── landing-page.component.css
+│   │   ├── home/
+│   │   │   ├── home-page.component.ts
+│   │   │   ├── home-page.component.html
+│   │   │   └── home-page.component.css
+│   ├── app.routes.ts
+│   ├── app.component.ts
+│   ├── app.component.html
+│   └── app.module.ts (or main.ts for standalone bootstrap)
+├── shared/
+│   ├── ui/
+│   │   ├── index.ts
+│   │   ├── app-button.component.ts
+│   │   ├── app-card.component.ts
+│   │   ├── app-text-input.component.ts
+│   │   ├── app-checkbox.component.ts
+│   │   ├── app-empty-state.component.ts
+│   │   └── app-badge.component.ts
+│   └── models/
+│       └── task.model.ts
+└── main.ts
+```
 
-Template Pattern Catalog (Form/Layout)
-- Primary layout pattern: layout-page-shell-header-toolbar
-- Primary form pattern: form-mixed-controls-create-edit
-- Reference: Template Pattern References: layout-page-shell-header-toolbar, form-mixed-controls-create-edit
+---
 
-Component & Module Strategy
-- Prefer standalone components (default in v20/v21)
-- Use inject() for services (if any)
-- Use NgOptimizedImage for static images only (avoid for base64 inline when used)
-- Avoid HostBinding/HostListener decorators; use host property in @Component
-- Ensure OnPush change detection on generated components
+## State Management
 
-File Structure
-- Overarching structure (folders reflect vertical slices and shared UI)
-  - src/app/
-    - app.html
-    - app.ts
-    - app.routes.ts
-    - landing/
-      - landing.component.ts
-      - landing.component.html
-      - landing.component.css (likely empty/minimal)
-    - home/
-      - home.component.ts
-      - home.component.html
-      - home.component.css (likely empty/minimal)
-    - shared/
-      - ui/
-        - (existing shared UI library, including app-button, app-card, app-text-input, app-checkbox, app-empty-state, app-badge)
-        - index.ts (barrel exports)
-      - state/
-        - signals.ts (shared signal utilities and potentially Task type)
-    - core/ (optional for global providers/tokens)
-    - assets/ (images, icons, etc.)
-- Important: All feature logic for the two pages lives in their respective folders; shared UI is reused via imports from src/app/shared/ui
+- Use signals for core feature state:
+  - `tasksSignal`: `Signal<Task[]>`
+  - `filterSignal`: `Signal<'all' | 'active' | 'completed'>`
+  - `filteredTasks`: `computed()` based on `tasksSignal` and `filterSignal`
+  - Counts: `totalCount`, `activeCount`, `completedCount` as `computed()`
+- Use `update()` and `set()` methods for signals
+- No external state management libraries
 
-Shared UI Coverage
-- Required selectors and their feature locations
-  - app-button: Landing CTA buttons and Home page actions (Add Task, Delete, filter toggles)
-  - app-card: Card-like containers for landing features and Home sections
-  - app-text-input: Quick Add Task input (bridged to form)
-  - app-checkbox: Task completion toggle
-  - app-empty-state: Empty state for Home page when no tasks or no matches
-  - app-badge: Counts for total/active/completed
-- Coverage plan: Place the selectors in meaningful UI sections (landing hero CTA area; home header with counts; quick add card; task list item card). Use a Shared UI Coverage panel in the Work Order if the selector list is lengthy to keep the main path clean.
+---
 
-UI/UX – Accessibility
-- ARIA:
-  - Landing: CTA buttons with aria-labels
-  - Home: tab-based filters with aria-pressed or aria-selected; task items with proper aria-labels
-- Landmarks: header (site header), main (page content), nav (landing navigation/filters)
-- Focus management: After adding a task, focus remains in the input
+## Form Model & Validation
 
-Routing and Initialization
-- Landing page is the first view on load
-- /home is accessible directly
-- When landing CTA clicked, route to /home
-- Navigation back to / from Home via a visible control
+### Reactive Form Schema
+```typescript
+const taskForm = new FormGroup({
+  title: new FormControl('', {
+    validators: [
+      Validators.required,
+      Validators.minLength(3),
+      Validators.maxLength(80),
+      Validators.pattern(/\S/) // ensure not whitespace only
+    ]
+  })
+});
+```
 
-Testing Perspective (Not the primary focus here)
-- Unit tests should use Vitest-compatible matchers
-- Use provideRouter([]) in tests if routing is needed
-- Do not rely on Jasmine specific matchers
+### Validation Matrix
+| Field | Required | Min Length | Max Length | Pattern | Error Message | Behavior |
+|---------|------------|--------------|--------------|---------|----------------|----------|
+| `title` | Yes        | 3          | 80           | No whitespace only | Show inline message after touch or submit | Disable submit if invalid |
 
-Requirement Traceability (Mapping Requirements to Implementation)
-- Landing and Home routes and navigation
-  - Implement routes and default behavior to ensure landing shows first
-  - Implement navigation from Landing to /home and from Home back to /
-- Data Model
-  - Implement Task interface as above
-  - Implement in Home component state
-- Quick Add form
-  - Implement reactive form with typed FormControl and custom trimmed length validator
-  - Bind to app-text-input via value/valueChange bridging
-- Task List and Filtering
-  - Implement task list rendering
-  - Implement All/Active/Completed filters with computed list
-  - Implement counts (total/active/completed) using computed
-  - Implement empty state logic for both no tasks and no matches
-- Shared UI selectors
-  - Ensure usage of app-button, app-card, app-text-input, app-checkbox, app-empty-state, app-badge in appropriate locations
-  - Provide mapping in UI/UX Requirements and Shared UI Coverage section
-- Accessibility and UX
-  - Implement semantic landmarks and ARIA relationships
-  - Validation messages visible
-- State Management
-  - Use Signals and computed for state
-  - Bridges for non-CVA controls
-- Template Pattern References
-  - UI/UX Requirements to include Template Pattern References: layout-page-shell-header-toolbar, form-mixed-controls-create-edit
-- Overwrite app.html and app.routes.ts
-  - Implement as a critical step to ensure default route and boilerplate removal
+### Binding Strategy
+- Use `app-text-input` with `[value]` bound to form control value
+- On `valueChange`, update form control
+- Show validation messages below input
 
-Acceptance Criteria
-- Visiting / loads landing page first
-- Landing CTA navigates to /home
-- /home renders to-do application UI
-- User can add a valid task
-- Invalid task submit shows validation feedback
-- User can mark a task complete/incomplete
-- User can delete a task
-- Filters All/Active/Completed update the displayed list
-- Counts update correctly with add/complete/delete
-- Empty state appears when no tasks exist and when a filter has no matches
-- All required shared UI selectors are present and used meaningfully
+---
 
-Files to be Created/Modified (Suggested)
-- src/app/app.html (overwrite with layout or <router-outlet />)
-- src/app/app.ts (adjust imports if necessary to reflect changes)
-- src/app/app.routes.ts (overwrite to set '' route to Landing)
-- src/app/landing/landing.component.ts
-- src/app/landing/landing.component.html
-- src/app/home/home.component.ts
-- src/app/home/home.component.html
-- src/app/shared/state/signals.ts (optional shared hooks for tasks)
-- src/app/shared/ui/index.ts (existing; ensure barrel exports)
-- Tailwind setup already present per blueprint; use utility classes in templates
+## UI/UX Requirements
 
-Developer Guidance and Runtime Notes
-- Prioritize reusing shared UI components from src/app/shared/ui before building any new custom UI
-- Read and respect the top usage comments in shared UI component files before usage
-- Use path alias imports (src/*) for shared UI components
-- Ensure typed Reactive Forms and non-CVA bridging for shared UI controls
-- Validate accessibility (AXE checks) and WCAG AA compliance during implementation
-- If template/config issues are detected (e.g., shared UI wrapper provider provisioning), mark as Template/Agent-level issues and address upstream when possible
+- **Landing Page:**
+  - Use `section` with semantic headings
+  - Large hero heading with Tailwind typography
+  - Feature cards in responsive grid
+  - CTA button styled with `app-button`, prominent
+  - Trust row with small badges or text
+  - Background with subtle gradient or layered shapes
+- **Home Page:**
+  - Header with title and counts (badges)
+  - Quick add form in `app-card`, with `app-text-input` and `app-button`
+  - Filter controls as toggle buttons with `aria-pressed`
+  - Task list:
+    - Each task in `app-card`
+    - Checkbox (`app-checkbox`) for completion
+    - Text with line-through if completed
+    - Delete button (`app-button`) with icon
+  - Empty state with `app-empty-state`
+- **Accessibility:**
+  - Use semantic landmarks (`header`, `main`, `section`, `nav`)
+  - Labels for inputs
+  - ARIA labels for buttons
+  - Validation messages visible and accessible
+  - Focus management: focus remains in input after add
 
-Template Pattern References
-- UI/UX Requirements section must include:
-  Template Pattern References: layout-page-shell-header-toolbar, form-mixed-controls-create-edit
+**Template Pattern References:** layout-page-shell-header-toolbar, form-mixed-controls-create-edit
 
-Deviation Notes
-- If any catalog pattern doesn’t fit due to a user-story constraint, document Deviation Notes in UI/UX Requirements with justification.
+---
 
-Assumptions
-- None declared beyond standard defaults; see Assumptions section if you adopt any during implementation.
+## Acceptance Criteria
 
-End of Work Order
+- Visiting `/` shows the landing page first
+- Clicking "Start Organizing" or "View Demo Tasks" navigates to `/home`
+- `/home` displays task management UI with header, form, filters, list
+- User can add a task with valid title:
+  - Validation errors shown inline for invalid input
+  - Input cleared after add
+  - Focus remains in input
+- User can toggle task completion:
+  - UI updates immediately
+  - Completed tasks styled with line-through and muted text
+- User can delete a task:
+  - Task disappears immediately
+- Filters update task list:
+  - "All" shows all tasks
+  - "Active" shows only incomplete
+  - "Completed" shows only completed
+- Counts update correctly on task add, toggle, delete
+- Empty state appears when no tasks or no tasks match filter
+- All shared UI components (`app-button`, `app-card`, `app-text-input`, `app-checkbox`, `app-empty-state`, `app-badge`) are used in meaningful locations
+- Application is styled with Tailwind utility classes, responsive, accessible, and visually polished
 
+---
+
+## Critical Instructions
+
+- Overwrite `src/app/app.html` and `src/app/app.routes.ts` so the new feature is the default view, removing default Angular boilerplate.
+- Use shared UI components from `src/app/shared/ui/` as per their documented usage.
+- Import shared UI components via barrel import from `'src/app/shared/ui'`.
+- Ensure all code adheres to Angular v20/v21 best practices, especially signals-based state management.
+- Address any template/configuration issues upstream if identified (e.g., shared UI behavior, path aliasing).
+
+---
+
+## Notes
+- This work order emphasizes a clean, accessible, and responsive design following the modern Angular v21 paradigm with signals.
+- Focus on maintainability, performance, and user experience.
+- Do not add external dependencies unless explicitly required by the user story.
+
+---
+
+**End of Work Order**
