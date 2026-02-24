@@ -186,8 +186,11 @@ TOKENS = TokenCounters()
 class AgentStateDict(TypedDict):
     userStory: str
     blueprint: str
+    blueprintSummary: str
     instructions: str
+    instructionsSummary: str
     orchestratorSkills: str
+    orchestratorSkillsSummary: str
     angularVersionContext: str
     workOrder: str
     validationFeedback: str
@@ -270,6 +273,78 @@ def build_orchestrator_skill_context() -> str:
     if not sections:
         return "No orchestrator skill pack content found."
     return "\n\n".join(f"## {title}\n{content.strip()}" for title, content in sections)
+
+
+SUMMARY_PRIORITY_KEYWORDS = re.compile(
+    r"\b("
+    r"critical|must|never|always|required|rule|template-first|template pattern|"
+    r"signal|signals|reactive form|forms|validation|validator|planner|developer|"
+    r"onpush|inject\(\)|@if|@for|ngif|ngfor|shared/ui|tailwind|aria|accessibility|"
+    r"route|routing|router|vitest|build|test"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
+
+def summarize_context_for_prompt(text: str, *, max_chars: int) -> str:
+    normalized = text.strip()
+    if not normalized:
+        return ""
+    if len(normalized) <= max_chars:
+        return normalized
+
+    raw_lines = [line.rstrip() for line in normalized.splitlines()]
+    head_lines = raw_lines[:28]
+    tail_lines = raw_lines[-10:]
+    priority_lines = [
+        line
+        for line in raw_lines
+        if line.strip()
+        and (
+            re.match(r"^\s{0,3}#{1,6}\s+", line)
+            or re.match(r"^\s*\d+[\.\)]\s+", line)
+            or SUMMARY_PRIORITY_KEYWORDS.search(line)
+        )
+    ]
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    reserve = 96  # Leave room for truncation metadata.
+
+    def try_add(line: str) -> None:
+        stripped = line.strip()
+        if not stripped:
+            return
+        key = re.sub(r"\s+", " ", stripped)
+        if key in seen:
+            return
+        preview_lines = selected + [stripped]
+        if len("\n".join(preview_lines)) > max_chars - reserve:
+            return
+        selected.append(stripped)
+        seen.add(key)
+
+    for bucket in (head_lines, priority_lines, tail_lines):
+        for line in bucket:
+            try_add(line)
+
+    if not selected:
+        truncated = normalized[: max_chars - reserve].rstrip()
+        selected = [truncated] if truncated else []
+
+    summary = "\n".join(selected).strip()
+    suffix = f"\n\n[summary: trimmed from {len(normalized)} chars for token efficiency]"
+    if len(summary) + len(suffix) <= max_chars:
+        return f"{summary}{suffix}"
+    return summary[: max(0, max_chars - len(suffix))].rstrip() + suffix
+
+
+def build_static_context_summaries(*, blueprint: str, instructions: str, orchestrator_skills: str) -> tuple[str, str, str]:
+    return (
+        summarize_context_for_prompt(blueprint, max_chars=3500),
+        summarize_context_for_prompt(instructions, max_chars=5000),
+        summarize_context_for_prompt(orchestrator_skills, max_chars=4500),
+    )
 
 
 def cleanup_generated_app_processes(*, target_dir: Path = TARGET_DIR) -> None:
@@ -823,12 +898,12 @@ def build_planner_prompt(state: AgentStateDict) -> str:
     return "".join(
         [
             "You are the Planning Agent (The Architect).\n",
-            "Blueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            "Blueprint (summarized once for token efficiency):\n",
+            state["blueprintSummary"],
+            "\n\nInstructions (summarized once for token efficiency):\n",
+            state["instructionsSummary"],
+            "\n\nOrchestrator Angular Skills (summarized once for token efficiency):\n",
+            state["orchestratorSkillsSummary"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
             "\n\nUser Story:\n",
@@ -844,12 +919,12 @@ def build_developer_system_prompt(state: AgentStateDict, retry_focus_instruction
         [
             DEVELOPER_RULES_BLOCK_PREFIX,
             retry_focus_instructions,
-            "\n\nBlueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            "\n\nBlueprint (summarized once for token efficiency):\n",
+            state["blueprintSummary"],
+            "\n\nInstructions (summarized once for token efficiency):\n",
+            state["instructionsSummary"],
+            "\n\nOrchestrator Angular Skills (summarized once for token efficiency):\n",
+            state["orchestratorSkillsSummary"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
         ]
@@ -860,12 +935,12 @@ def build_validator_system_prompt(state: AgentStateDict) -> str:
     return "".join(
         [
             VALIDATOR_RULES_BLOCK,
-            "\n\nBlueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            "\n\nBlueprint (summarized once for token efficiency):\n",
+            state["blueprintSummary"],
+            "\n\nInstructions (summarized once for token efficiency):\n",
+            state["instructionsSummary"],
+            "\n\nOrchestrator Angular Skills (summarized once for token efficiency):\n",
+            state["orchestratorSkillsSummary"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
         ]
@@ -1103,13 +1178,21 @@ def run_full_workflow() -> None:
     blueprint = BLUEPRINT_PATH.read_text(encoding="utf-8")
     instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
     orchestrator_skills = build_orchestrator_skill_context()
+    blueprint_summary, instructions_summary, orchestrator_skills_summary = build_static_context_summaries(
+        blueprint=blueprint,
+        instructions=instructions,
+        orchestrator_skills=orchestrator_skills,
+    )
     angular_version_context = build_angular_version_context(TARGET_DIR / "package.json")
 
     state: AgentStateDict = {
         "userStory": user_story,
         "blueprint": blueprint,
+        "blueprintSummary": blueprint_summary,
         "instructions": instructions,
+        "instructionsSummary": instructions_summary,
         "orchestratorSkills": orchestrator_skills,
+        "orchestratorSkillsSummary": orchestrator_skills_summary,
         "angularVersionContext": angular_version_context,
         "workOrder": "",
         "validationFeedback": "",
