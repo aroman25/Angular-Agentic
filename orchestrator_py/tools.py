@@ -4,9 +4,33 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
+
+for _candidate in [
+    (Path(__file__).resolve().parent / ".env").resolve(),
+    (Path(__file__).resolve().parents[1] / "orchestrator" / ".env").resolve(),
+]:
+    try:
+        if _candidate.exists():
+            from dotenv import load_dotenv as _load_dotenv
+
+            _load_dotenv(_candidate)
+            break
+    except Exception:
+        break
+
+try:
+    from orchestrator_py.log_store import (
+        append_command_log,
+        list_command_logs as list_command_log_records,
+        read_command_log as read_command_log_file,
+    )
+except ModuleNotFoundError:  # Allows `python orchestrator_py/index.py`
+    from log_store import append_command_log, list_command_logs as list_command_log_records, read_command_log as read_command_log_file
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGET_DIR = (REPO_ROOT / "generated-app").resolve()
+ACTIVE_RUN_ID = ""
 MAX_READ_FILE_CHARS = int(os.getenv("ORCH_TOOL_READ_FILE_MAX_CHARS", "18000"))
 MAX_COMMAND_SUCCESS_CHARS = int(os.getenv("ORCH_TOOL_COMMAND_SUCCESS_MAX_CHARS", "5000"))
 MAX_COMMAND_FAILURE_CHARS = int(os.getenv("ORCH_TOOL_COMMAND_FAILURE_MAX_CHARS", "9000"))
@@ -90,6 +114,11 @@ def _summarize_success_output(command: str, stdout: str) -> str:
     return _truncate_text(tail, MAX_COMMAND_SUCCESS_CHARS)
 
 
+def set_active_run_id(run_id: str) -> None:
+    global ACTIVE_RUN_ID
+    ACTIVE_RUN_ID = run_id
+
+
 def write_code(file_path: str, content: str, *, target_dir: Path = TARGET_DIR) -> str:
     full_path = (target_dir / file_path).resolve()
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,8 +148,27 @@ def run_command(command: str, *, target_dir: Path = TARGET_DIR) -> str:
     )
     stdout = result.stdout or ""
     stderr = result.stderr or ""
+    log_meta: dict[str, Any] = {}
+    if ACTIVE_RUN_ID:
+        try:
+            log_meta = append_command_log(
+                run_id=ACTIVE_RUN_ID,
+                command=command,
+                cwd=target_dir,
+                exit_code=result.returncode,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        except Exception:
+            log_meta = {}
+    log_tail = (
+        f"\nLog: {log_meta.get('path')} (id={log_meta.get('logId')})"
+        if log_meta.get("path") and log_meta.get("logId")
+        else ""
+    )
+
     if result.returncode == 0:
-        return f"Command succeeded:\n{_summarize_success_output(command, stdout)}"
+        return f"Command succeeded:\n{_summarize_success_output(command, stdout)}{log_tail}"
 
     important_lines = _extract_important_lines(stdout, stderr)
     details: list[str] = [f"Command failed (exit code {result.returncode})."]
@@ -130,7 +178,32 @@ def run_command(command: str, *, target_dir: Path = TARGET_DIR) -> str:
         details.append(f"STDOUT (truncated):\n{_truncate_text(stdout, MAX_COMMAND_FAILURE_CHARS)}")
     if stderr.strip():
         details.append(f"STDERR (truncated):\n{_truncate_text(stderr, MAX_COMMAND_FAILURE_CHARS)}")
+    if log_tail:
+        details.append(log_tail.strip())
     return "\n\n".join(details)
+
+
+def list_command_logs() -> str:
+    if not ACTIVE_RUN_ID:
+        return "No active run id set. Command logs unavailable."
+    records = list_command_log_records(run_id=ACTIVE_RUN_ID, limit=25)
+    if not records:
+        return "No command logs found."
+    lines: list[str] = []
+    for record in records:
+        lines.append(
+            f"- {record.get('logId')} | exit={record.get('exitCode')} | {record.get('command')} | {record.get('file')}"
+        )
+    return "\n".join(lines)
+
+
+def read_command_log(*, log_id: str, tail_lines: int | None = None, pattern: str | None = None) -> str:
+    if not ACTIVE_RUN_ID:
+        return "No active run id set. Command logs unavailable."
+    try:
+        return read_command_log_file(log_id=log_id, run_id=ACTIVE_RUN_ID, tail_lines=tail_lines, pattern=pattern)
+    except Exception as exc:
+        return f"Error reading command log: {exc}"
 
 
 def build_langchain_tools(*, target_dir: Path = TARGET_DIR) -> list[object]:
@@ -158,15 +231,28 @@ def build_langchain_tools(*, target_dir: Path = TARGET_DIR) -> list[object]:
         """Run a shell command in the generated app directory (e.g., npm run build, npm run test -- --watch=false)."""
         return run_command(command, target_dir=target_dir)
 
-    return [write_code_tool, read_file_tool, run_command_tool]
+    @tool("list_command_logs")
+    def list_command_logs_tool() -> str:
+        """List available command logs for the current orchestrator run."""
+        return list_command_logs()
+
+    @tool("read_command_log")
+    def read_command_log_tool(logId: str, tailLines: int | None = None, pattern: str | None = None) -> str:  # noqa: N803
+        """Read a saved command log by ID with optional tail line count and regex filter."""
+        return read_command_log(log_id=logId, tail_lines=tailLines, pattern=pattern)
+
+    return [write_code_tool, read_file_tool, run_command_tool, list_command_logs_tool, read_command_log_tool]
 
 
 __all__ = [
     "TARGET_DIR",
     "build_langchain_tools",
+    "list_command_logs",
     "read_file",
+    "read_command_log",
     "reject_unsafe_agent_command",
     "run_command",
+    "set_active_run_id",
     "write_code",
 ]
 

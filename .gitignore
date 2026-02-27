@@ -5,3 +5,5 @@ generated-app-stale-20260222-130546/node_modules/jsdom/lib/jsdom/living/generate
 orchestrator_py/.env
 generated-app
 generated-app-stale-2026-02-24T04-51-31-176800/node_modules/@exodus/bytes/base32.d.ts
+orchestrator_py/logs
+orchestrator_py/__pycache__

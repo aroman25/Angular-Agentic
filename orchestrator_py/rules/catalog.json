@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "PLANNER_WORK_ORDER_HEADINGS",
+      "roles": ["planner"],
+      "priority": "required",
+      "tags": ["work-order", "sections"],
+      "text": "Return a complete work order covering: Feature Name & Goal, User Story Data Points, Requirement Traceability, File Structure, State Management, Form Model & Validation (when applicable), UI/UX Requirements, Acceptance Criteria."
+    },
+    {
+      "id": "PLANNER_DATA_FIDELITY",
+      "roles": ["planner"],
+      "priority": "required",
+      "tags": ["data-fidelity"],
+      "text": "Use concrete data points from user story (routes, fields, selectors, constraints). Mark non-story details under Assumptions."
+    },
+    {
+      "id": "PLANNER_TEMPLATE_PATTERN_REFERENCE",
+      "roles": ["planner"],
+      "priority": "required",
+      "tags": ["pattern", "form", "layout"],
+      "text": "UI/UX Requirements must include a Template Pattern References line. If none fit, use 'Template Pattern References: none' and add Deviation Notes."
+    },
+    {
+      "id": "PLANNER_SHARED_UI_MAPPING",
+      "roles": ["planner"],
+      "priority": "conditional",
+      "tags": ["selectors", "shared-ui"],
+      "text": "If user story lists required app-* selectors, include a checklist mapping each selector to a feature location or interaction."
+    },
+    {
+      "id": "PLANNER_FORM_MATRIX",
+      "roles": ["planner"],
+      "priority": "conditional",
+      "tags": ["form", "validation"],
+      "text": "For form-centric stories, include typed Reactive Form schema, field-by-field validation matrix, error timing, submit rules, and non-CVA value/valueChange binding strategy."
+    },
+    {
+      "id": "PLANNER_ROUTE_DEFAULT",
+      "roles": ["planner"],
+      "priority": "required",
+      "tags": ["routing"],
+      "text": "Explicitly instruct Developer to overwrite app shell routes and ensure the new feature is first page shown."
+    },
+    {
+      "id": "PLANNER_TEMPLATE_FIRST_ESCALATION",
+      "roles": ["planner"],
+      "priority": "default",
+      "tags": ["template"],
+      "text": "Call out reusable defects as Template/Agent-level when issue likely belongs to template, shared UI wrappers, or orchestration defaults."
+    },
+
+    {
+      "id": "DEV_BUILD_ZERO_WARNINGS",
+      "roles": ["developer"],
+      "priority": "required",
+      "tags": ["build"],
+      "text": "Continue until npm run build succeeds with zero errors and zero Angular warnings."
+    },
+    {
+      "id": "DEV_OVERWRITE_APP_SHELL",
+      "roles": ["developer"],
+      "priority": "required",
+      "tags": ["routing"],
+      "text": "Overwrite src/app/app.html and src/app/app.routes.ts so feature route loads first. Update app.ts and app.spec.ts to remove default boilerplate assumptions."
+    },
+    {
+      "id": "DEV_ANGULAR_ONPUSH_INJECT_SIGNALS",
+      "roles": ["developer"],
+      "priority": "required",
+      "tags": ["angular"],
+      "text": "Use OnPush, inject(), input/output/model APIs, native @if/@for control flow, and Signals for feature state."
+    },
+    {
+      "id": "DEV_REACTIVE_FORMS_ONLY",
+      "roles": ["developer"],
+      "priority": "required",
+      "tags": ["form"],
+      "text": "Never use ngModel/template-driven forms. Use typed Reactive Forms with explicit validators and visible validation UX."
+    },
+    {
+      "id": "DEV_NON_CVA_BRIDGING",
+      "roles": ["developer"],
+      "priority": "conditional",
+      "tags": ["form", "shared-ui", "validation"],
+      "text": "For shared controls without CVA support, bind [value] and (valueChange) explicitly; do not use formControlName unless control supports CVA."
+    },
+    {
+      "id": "DEV_SHARED_UI_REUSE",
+      "roles": ["developer"],
+      "priority": "required",
+      "tags": ["shared-ui"],
+      "text": "Use prebuilt components from src/app/shared/ui (prefer barrel import src/app/shared/ui). Avoid duplicating existing shared primitives."
+    },
+    {
+      "id": "DEV_SELECTOR_COVERAGE",
+      "roles": ["developer"],
+      "priority": "conditional",
+      "tags": ["selectors", "shared-ui"],
+      "text": "If user story/work order requires selectors, ensure each required selector appears meaningfully in feature templates."
+    },
+    {
+      "id": "DEV_TAILWIND_ONLY",
+      "roles": ["developer"],
+      "priority": "default",
+      "tags": ["tailwind"],
+      "text": "Use Tailwind utilities in templates. Keep feature CSS minimal; do not redefine utility classes like container/grid/flex."
+    },
+    {
+      "id": "DEV_RETRY_MINIMAL_FIXES",
+      "roles": ["developer"],
+      "priority": "default",
+      "tags": ["retry"],
+      "text": "On retry, prioritize minimal targeted edits for listed failures before any broader refactor."
+    },
+    {
+      "id": "DEV_TEMPLATE_LEVEL_CLASSIFICATION",
+      "roles": ["developer"],
+      "priority": "default",
+      "tags": ["template"],
+      "text": "If failures indicate reusable template/shared UI defects, classify and report as Template/Agent-level issue with path and root cause."
+    },
+
+    {
+      "id": "VAL_RUN_TESTS_AND_INSPECT",
+      "roles": ["validator"],
+      "priority": "required",
+      "tags": ["testing"],
+      "text": "Run npm run test -- --watch=false and inspect code semantically even after deterministic checks pass."
+    },
+    {
+      "id": "VAL_SHARED_UI_BY_SELECTOR_IMPORTS",
+      "roles": ["validator"],
+      "priority": "required",
+      "tags": ["shared-ui"],
+      "text": "Validate shared UI reuse by actual selectors/imports, not guessed app-* file paths."
+    },
+    {
+      "id": "VAL_FORM_VALIDATION_AUDIT",
+      "roles": ["validator"],
+      "priority": "conditional",
+      "tags": ["form", "validation"],
+      "text": "For form-centric stories, verify typed Reactive Form model, validators, error UI states, submit handling, and non-CVA bridging."
+    },
+    {
+      "id": "VAL_SELECTOR_COVERAGE_AUDIT",
+      "roles": ["validator"],
+      "priority": "conditional",
+      "tags": ["selectors", "shared-ui"],
+      "text": "If required selectors are listed, verify each selector exists in feature templates and is used meaningfully."
+    },
+    {
+      "id": "VAL_SCOPE_STRICT_REQUIRED_ONLY",
+      "roles": ["validator"],
+      "priority": "required",
+      "tags": ["scope"],
+      "text": "Fail only explicit required criteria from user story/work order. Do not fail optional or speculative requirements."
+    },
+    {
+      "id": "VAL_CLASSIFY_FAILURE_LEVEL",
+      "roles": ["validator"],
+      "priority": "required",
+      "tags": ["template"],
+      "text": "Classify every failure as Feature-level or Template/Agent-level with concrete file paths and next fix steps."
+    },
+    {
+      "id": "VAL_PASS_STRICT",
+      "roles": ["validator"],
+      "priority": "required",
+      "tags": ["pass"],
+      "text": "Output exactly PASS only when all checks pass with no caveats."
+    }
+  ]
+}

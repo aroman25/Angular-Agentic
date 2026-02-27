@@ -11,7 +11,20 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Literal, TypedDict
+from typing import Literal, TypedDict
+
+for _candidate in [
+    (Path(__file__).resolve().parent / ".env").resolve(),
+    (Path(__file__).resolve().parents[1] / "orchestrator" / ".env").resolve(),
+]:
+    try:
+        if _candidate.exists():
+            from dotenv import load_dotenv as _load_dotenv
+
+            _load_dotenv(_candidate)
+            break
+    except Exception:
+        break
 
 try:
     from orchestrator_py.tools import (
@@ -20,11 +33,83 @@ try:
         read_file,
         reject_unsafe_agent_command,
         run_command,
+        set_active_run_id,
         write_code,
     )
 except ModuleNotFoundError:  # Allows `python orchestrator_py/index.py`
-    from tools import TARGET_DIR, build_langchain_tools, read_file, reject_unsafe_agent_command, run_command, write_code
+    from tools import (
+        TARGET_DIR,
+        build_langchain_tools,
+        read_file,
+        reject_unsafe_agent_command,
+        run_command,
+        set_active_run_id,
+        write_code,
+    )
 
+try:
+    from orchestrator_py.context_retrieval import (
+        ContextCard,
+        RetrievalResult,
+        Role,
+        SourceDocument,
+        build_card_index,
+        infer_story_signals,
+        retrieve_context_for_role,
+    )
+    from orchestrator_py.work_order_render import (
+        ExecutionBriefOptions,
+        build_execution_brief_from_contract,
+        build_execution_brief_from_markdown,
+        render_work_order_markdown,
+    )
+    from orchestrator_py.work_order_schema import (
+        WorkOrderContract,
+        format_validation_error_messages,
+        to_pretty_json,
+        validate_work_order_contract,
+    )
+except ModuleNotFoundError:  # Allows `python orchestrator_py/index.py`
+    from context_retrieval import (
+        ContextCard,
+        RetrievalResult,
+        Role,
+        SourceDocument,
+        build_card_index,
+        infer_story_signals,
+        retrieve_context_for_role,
+    )
+    from work_order_render import (
+        ExecutionBriefOptions,
+        build_execution_brief_from_contract,
+        build_execution_brief_from_markdown,
+        render_work_order_markdown,
+    )
+    from work_order_schema import (
+        WorkOrderContract,
+        format_validation_error_messages,
+        to_pretty_json,
+        validate_work_order_contract,
+    )
+
+try:
+    from orchestrator_py.deterministic_checks import (
+        DeterministicCommandResult,
+        DeterministicValidationResult,
+        run_deterministic_validation_checks,
+    )
+    from orchestrator_py.log_store import (
+        snapshot_files_hashes,
+        start_run,
+        summarize_changed_files,
+    )
+    from orchestrator_py.model_router import get_base_model_for_role, get_model_for_role
+    from orchestrator_py.token_budget import BudgetBlock, allocate_blocks
+except ModuleNotFoundError:  # Allows `python orchestrator_py/index.py`
+    from deterministic_checks import DeterministicCommandResult, DeterministicValidationResult, run_deterministic_validation_checks
+    from log_store import snapshot_files_hashes, start_run, summarize_changed_files
+    from model_router import get_base_model_for_role, get_model_for_role
+    from token_budget import BudgetBlock, allocate_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PY_ORCHESTRATOR_DIR = Path(__file__).resolve().parent
@@ -43,135 +128,48 @@ TEMPLATE_PATTERN_CATALOG_INDEX_PATH = TEMPLATE_DIR / "docs" / "agent-patterns" /
 
 USER_STORY_PATH = (NODE_ORCHESTRATOR_DIR / "user-story.md").resolve()
 LAST_WORK_ORDER_PATH = (PY_ORCHESTRATOR_DIR / "last-work-order.md").resolve()
+LAST_WORK_ORDER_JSON_PATH = (PY_ORCHESTRATOR_DIR / "last-work-order.json").resolve()
 LAST_VALIDATION_PATH = (PY_ORCHESTRATOR_DIR / "last-validation-feedback.md").resolve()
+RULE_CATALOG_PATH = (PY_ORCHESTRATOR_DIR / "rules" / "catalog.json").resolve()
 
 TEMPLATE_COPY_IGNORES = {"node_modules", "dist", ".angular", ".git"}
-DEFAULT_MODEL = "gpt-5-nano"
-PROMPT_BLUEPRINT_MAX_CHARS = int(os.getenv("ORCH_PROMPT_BLUEPRINT_MAX_CHARS", "5000"))
-PROMPT_INSTRUCTIONS_MAX_CHARS = int(os.getenv("ORCH_PROMPT_INSTRUCTIONS_MAX_CHARS", "5000"))
+
+DEFAULT_MODEL = os.getenv("ORCH_MODEL_DEV_BASE", "gpt-5-nano")
+WORK_ORDER_MODE = os.getenv("ORCH_WORK_ORDER_MODE", "dual").strip().lower()
+if WORK_ORDER_MODE not in {"dual", "strict", "observe"}:
+    WORK_ORDER_MODE = "dual"
+RETRIEVAL_ENABLED = os.getenv("ORCH_RETRIEVAL_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+RETRIEVAL_MAX_CHARS: dict[Role, int] = {
+    "planner": int(os.getenv("ORCH_RETRIEVAL_MAX_CHARS_PLANNER", "5200")),
+    "developer": int(os.getenv("ORCH_RETRIEVAL_MAX_CHARS_DEVELOPER", "4200")),
+    "validator": int(os.getenv("ORCH_RETRIEVAL_MAX_CHARS_VALIDATOR", "3600")),
+}
+RULE_MAX_COUNT: dict[Role, int] = {
+    "planner": int(os.getenv("ORCH_RULE_MAX_COUNT_PLANNER", "18")),
+    "developer": int(os.getenv("ORCH_RULE_MAX_COUNT_DEVELOPER", "20")),
+    "validator": int(os.getenv("ORCH_RULE_MAX_COUNT_VALIDATOR", "16")),
+}
+PROMPT_MAX_CHARS: dict[Role, int] = {
+    "planner": int(os.getenv("ORCH_PROMPT_MAX_CHARS_PLANNER", "22000")),
+    "developer": int(os.getenv("ORCH_PROMPT_MAX_CHARS_DEVELOPER", "20000")),
+    "validator": int(os.getenv("ORCH_PROMPT_MAX_CHARS_VALIDATOR", "18000")),
+}
+RETRY_DELTA_ONLY = os.getenv("ORCH_RETRY_DELTA_ONLY", "true").strip().lower() not in {"0", "false", "no", "off"}
+RETRY_INCLUDE_FULL_WORKORDER_ON_FIRST_ATTEMPT = (
+    os.getenv("ORCH_RETRY_INCLUDE_FULL_WORKORDER_ON_FIRST_ATTEMPT", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+VALIDATOR_HYBRID_CONFIDENCE_THRESHOLD = float(os.getenv("ORCH_VALIDATOR_HYBRID_CONFIDENCE_THRESHOLD", "0.85"))
+EXECUTION_BRIEF_MAX_CHARS = int(os.getenv("ORCH_EXECUTION_BRIEF_MAX_CHARS", "5500"))
 PROMPT_USER_STORY_MAX_CHARS = int(os.getenv("ORCH_PROMPT_USER_STORY_MAX_CHARS", "8000"))
-PROMPT_WORK_ORDER_MAX_CHARS = int(os.getenv("ORCH_PROMPT_WORK_ORDER_MAX_CHARS", "9000"))
 PROMPT_VALIDATION_FEEDBACK_MAX_CHARS = int(os.getenv("ORCH_PROMPT_VALIDATION_FEEDBACK_MAX_CHARS", "4000"))
-PROMPT_SKILL_SECTION_MAX_CHARS = int(os.getenv("ORCH_PROMPT_SKILL_SECTION_MAX_CHARS", "1400"))
-PROMPT_SKILLS_TOTAL_MAX_CHARS = int(os.getenv("ORCH_PROMPT_SKILLS_TOTAL_MAX_CHARS", "4200"))
-
-
-PLANNER_RULES_BLOCK = """Create a detailed Work Order (Markdown) for the Development Agent following the Vertical Slicing Architecture.
-Include File Structure, State Management, UI/UX Requirements, and Acceptance Criteria.
-WORK ORDER STRUCTURE RULE (required headings):
-- Feature Name & Goal
-- User Story Data Points (extract exact routes, field lists/options, required selectors, validation rules, and acceptance-critical constraints from the user story)
-- Requirement Traceability (map each user-story requirement/data point to implementation tasks + acceptance criteria)
-- File Structure
-- State Management
-- Form Model & Validation (when applicable)
-- UI/UX Requirements
-- Acceptance Criteria
-TEMPLATE PATTERN RULE: For form/layout-heavy features, the Work Order 'UI/UX Requirements' section MUST include a 'Template Pattern References:' line citing selected pattern IDs from the template docs catalog (for example 'layout-page-shell-header-toolbar', 'form-mixed-controls-create-edit').
-TEMPLATE PATTERN RULE: If no catalog pattern fits, include 'Template Pattern References: none' and a 'Deviation Notes:' line explaining why.
-DATA FIDELITY RULE: All concrete data points (routes, field names, options, limits, required selectors, validation requirements) must come from the user story unless explicitly marked as an assumption.
-ASSUMPTION RULE: If you add any assumption, place it in a short "Assumptions" section and label each assumption clearly.
-CRITICAL: Explicitly instruct the Developer to overwrite 'src/app/app.html' and 'src/app/app.routes.ts' so the new feature is the default view and the Angular boilerplate is removed.
-CRITICAL UI RULE: You MUST utilize the pre-built UI components located in 'src/app/shared/ui/' whenever these patterns are needed. Do not instruct the developer to build these from scratch.
-CRITICAL UI RULE: Before listing custom UI work, require the Developer to inspect 'src/app/shared/ui/index.ts' and the top usage comments in the selected shared UI component files.
-CRITICAL IMPORT RULE: The template supports the TypeScript path alias 'src/*'. Prefer shared UI barrel imports from 'src/app/shared/ui' unless a relative import is clearer.
-TEMPLATE-FIRST RULE: If a likely reusable issue is identified (template config, shared UI component behavior, boilerplate app shell issue, path alias/import problem), call it out as a Template/Agent-level issue in the Work Order/notes so it can be fixed upstream.
-SCOPE RULE: Do NOT add new mandatory tools/process requirements (e.g., AXE, Playwright, Lighthouse, e2e suites) unless the user story explicitly requires them.
-FORM RULE: If the user story is form-centric, you MUST include a typed Reactive Forms schema, a field-by-field validation matrix (required/min/max/pattern/custom), validation message behavior (when errors appear), submit/disable rules, and the exact shared-ui control binding strategy for non-CVA controls.
-PATTERN SELECTION RULE: Use the template pattern catalog in 'automate-angular-template/docs/agent-patterns/' to choose one primary 'layout-*' pattern and 0-2 'form-*' patterns before proposing custom UI structure.
-SHARED UI COVERAGE RULE: If the user story lists specific 'app-*' selectors, include a checklist in the Work Order mapping every listed selector to a concrete feature location/interaction.
-SHARED UI COVERAGE IMPLEMENTATION TIP: If the selector list is long, explicitly plan a "Shared UI Coverage" section/panel in the feature so every required component is demonstrated meaningfully without cluttering the primary form path.
-You MUST explicitly list the exact shared UI imports/selectors the Developer should use (e.g., app-card, app-button, app-tabs, app-select, app-text-input, app-checkbox, app-empty-state, app-icon)."""
-
-DEVELOPER_RULES_BLOCK_PREFIX = """You are the Development Agent (The Engineer).
-Your job is to execute the Work Order by writing code and ensuring the app compiles.
-You MUST use the provided tools to write files and run 'npm run build'.
-Do not stop until 'npm run build' succeeds with ZERO errors and ZERO warnings (e.g., fix NG8103 warnings by using @for).
-Before coding, use read_file to inspect:
-1) 'src/app/shared/ui/index.ts'
-2) The shared UI component files you plan to use (read the top usage comments)
-3) 'src/app/app.ts', 'src/app/app.html', 'src/app/app.routes.ts', and 'src/app/app.spec.ts'
-4) If the Work Order cites pattern IDs, read 'automate-angular-template/docs/agent-patterns/README.md' and the cited pattern docs in 'forms-core.md' / 'layouts-core.md'
-
-CRITICAL ROUTING RULE:
-You MUST overwrite 'src/app/app.html' to remove the default Angular boilerplate and replace it with your own layout or just '<router-outlet />'.
-You MUST update 'src/app/app.routes.ts' to set the default route (path: '') to redirect to your new feature, or load your feature directly. The main page of the feature MUST be the first page to appear.
-You MUST update 'src/app/app.ts' to remove 'NgOptimizedImage' from the imports array if you are no longer using it in 'app.html'.
-You MUST update 'src/app/app.spec.ts' to remove the test that checks for the 'h1' element, and ensure there are no duplicate 'imports' keys in 'TestBed.configureTestingModule'. Also, ensure 'App' is in 'imports' and NOT in 'declarations' since it is a standalone component.
-NEVER use '[(ngModel)]' or Template-driven forms. ALWAYS use Reactive Forms ('FormControl', 'FormGroup', 'ReactiveFormsModule').
-CRITICAL ANGULAR RULES (hard validation failures):
-- Use 'ChangeDetectionStrategy.OnPush' on all new components.
-- Use 'inject()' instead of constructor injection.
-- Use 'input()', 'output()', and 'model()' instead of '@Input()' and '@Output()' decorators.
-- Use Signals ('signal', 'computed') for feature state. Do not store core feature state as plain mutable class fields.
-- Use native control flow (@if/@for/@switch). Do not use *ngIf/*ngFor.
-CRITICAL UI RULE: You MUST use the pre-built UI components in 'src/app/shared/ui/' instead of building custom versions for covered patterns.
-Prefer: <app-card>, <app-button>, <app-badge>, <app-tabs>, <app-select>, <app-text-input>, <app-textarea>, <app-checkbox>, <app-empty-state>, <app-icon>.
-SHARED UI COVERAGE RULE: If the Work Order/user story lists required selectors, you MUST track them and ensure each one appears in the feature templates at least once.
-SHARED UI COVERAGE IMPLEMENTATION TIP: For large selector lists, create a dedicated "UI coverage/demo" section using realistic mock content so all required components are present while keeping the main form usable.
-TEMPLATE PATTERN IMPLEMENTATION RULE: If the Work Order includes 'Template Pattern References', follow the cited pattern skeletons and shared UI composition maps first. Only deviate if the Work Order includes a justified 'Deviation Notes' explanation.
-TAILWIND RULE: Style feature UIs with Tailwind utility classes in templates. Do NOT recreate Tailwind utilities in feature component CSS (e.g., '.container', '.grid', '.grid-cols-*', '.flex').
-TAILWIND RULE: Keep feature component CSS empty/minimal unless there is a justified non-utility styling need.
-TEMPLATE EXPRESSION RULE: Do NOT use inline arrow functions in templates. Do NOT invent complex inline object/function literals for component APIs when the shape is non-trivial; define typed arrays/options/config in component TypeScript instead.
-API SHAPE RULE: Do not guess shared UI inputs/outputs. Read the component usage comment and component code first, then match the documented API exactly.
-CRITICAL IMPORT RULE: Import shared UI components from 'src/app/shared/ui' (barrel import supported by template tsconfig path alias 'src/*'), or use explicit relative imports if you choose not to use the alias.
-Do NOT create duplicate files under 'src/app/shared/ui/' for components that already exist in the template.
-NOTE: These custom UI components do NOT implement ControlValueAccessor. You CANNOT use 'formControlName' on them. You MUST bind to their model inputs (e.g., '[value]=\"form.controls.myControl.value\" (valueChange)=\"updateControl($event)\"').
-FORM VALIDATION RULES (required when the feature includes forms):
-- Build a typed Reactive Form ('FormGroup'/'FormControl', '{ nonNullable: true }' where appropriate) and import 'ReactiveFormsModule'.
-- Define explicit validators ('Validators.required', 'Validators.email', 'Validators.minLength', custom validators, etc.) according to the Work Order.
-- Show validation feedback in the template (error text/hint states) based on 'touched', 'dirty', or submitted state.
-- Include inline error messages for multiple fields and a form-level validation summary/alert after submit attempt.
-- Disable submit while the form is invalid/pending and surface a success/error result state after submit.
-- For shared UI controls without CVA support, create explicit bridge methods between form controls and component 'value'/'valueChange' APIs.
-RADIO GROUP RULE: If 'app-radio-group' is in the required selector list, use it in the actual inquiry form flow (not only in a detached coverage/demo section).
-IMPORTANT: If the Validator reports issues, fix those exact issues first, rerun build/tests, and then stop.
-If the Validator or build output suggests a reusable template/orchestration issue, explicitly state "Template/Agent-level issue" in your response with the file path and root cause.
-RUNTIME DI RULE: If you encounter runtime Angular DI errors like 'NG0201 No provider found' from shared UI wrappers (especially Angular Aria wrappers under 'src/app/shared/ui/'), treat it as a likely Template/Agent-level issue. Inspect whether provider/group directives are attached to an internal wrapper instead of the shared component host when children are projected via '<ng-content>'.
-TESTING RULE: This workspace uses Vitest. Do NOT use Jasmine-only matchers like toBeTrue()/toBeFalse(); use toBe(true/false) or toBeTruthy()/toBeFalsy().
-ANGULAR TEMPLATE RULE: Do NOT use TypeScript 'as' casts inside Angular template expressions/event bindings. Normalize or narrow values in component TypeScript methods instead.
-"""
-
-VALIDATOR_RULES_BLOCK = """You are the Validation Agent (The Tester).
-Your job is to verify the Developer's output against the Work Order's Acceptance Criteria.
-Deterministic prechecks (build/test + rule scans) already passed. You should still inspect the code for semantic correctness.
-You MUST use the tools to run 'npm run test -- --watch=false' and read files to check for Zoneless compliance, Signals, and OnPush.
-You MUST verify that the Developer reused the pre-built UI components in 'src/app/shared/ui/' where applicable (not only Accordion/Autocomplete/Menu/Select/Tabs, but also Button/Card/Badge/TextInput/Checkbox/etc. when relevant).
-CRITICAL SHARED UI PATH RULE: Selectors like '<app-card>' map to component selectors, not necessarily folder names. In this template, '<app-card>' is implemented at 'src/app/shared/ui/card/card.component.ts' (not 'src/app/shared/ui/app-card/app-card.component.ts'). Verify reuse by checking actual imports (preferably from 'src/app/shared/ui') and selector usage, not guessed 'app-*' file paths.
-You MUST verify that the Developer implemented ALL features requested in the Work Order (e.g., forms, buttons, lists).
-FORM VALIDATION RULE: If the feature is form-centric, verify the code contains a typed Reactive Form model, validators, validation/error UI states, and proper submit handling. For shared UI controls, verify 'value'/'valueChange' bridging is used instead of unsupported 'formControlName'.
-SHARED UI COVERAGE RULE: If the user story explicitly lists required 'app-*' selectors, verify each listed selector is present in the feature templates and used meaningfully (not just imported).
-TEMPLATE PATTERN RULE: If the Work Order is form/layout-heavy, verify 'UI/UX Requirements' includes 'Template Pattern References' (or 'Template Pattern References: none' plus 'Deviation Notes').
-TEMPLATE PATTERN RULE: Check that the implementation broadly reflects the cited pattern IDs, or that any deviation is documented and still satisfies acceptance criteria.
-Only fail on requirements that are explicitly REQUIRED by the Work Order / user story.
-Do NOT fail the app for "Nice to Have", "Optional", or "Consider adding" items.
-Do NOT fail because "information is not provided" if you can read the relevant files with tools. Inspect the actual HTML/CSS/TS before claiming uncertainty.
-Do NOT require automated AXE/Lighthouse/Playwright runs unless the user story explicitly requires those exact tools. Validate accessibility by code inspection when automation is not explicitly required.
-Do NOT claim missing features unless you inspected the actual HTML/TS and can cite the file path and concrete missing element/logic.
-Do NOT fail for zoneless configuration unless you find a concrete violation in code or missing required provider setup explicitly requested by the Work Order.
-Do NOT fail solely because a cited template pattern was adapted, if the Work Order documents the deviation and the implementation remains correct.
-Classify each failure in your report as either "Feature-level" or "Template/Agent-level". Mark issues as Template/Agent-level when they are reusable across generated apps (template defaults, tsconfig/path alias, shared UI component defects, boilerplate app shell issues, validator/prompt gaps).
-RUNTIME DI CLASSIFICATION RULE: If you find an Angular runtime DI error (e.g., NG0201 No provider found) caused by a shared UI wrapper in 'src/app/shared/ui/' using content projection with Angular Aria/provider directives, classify it as "Template/Agent-level" and cite the shared UI wrapper file(s), not only the feature component that rendered it.
-If it passes ALL checks with no caveats or uncertainties, output exactly "PASS" and nothing else.
-If it fails ANY check, output a concise detailed feedback report with:
-- Build/test failures first (exact command + error summary)
-- Then architecture/style violations (file paths)
-- Then missing features vs acceptance criteria
-- Concrete fixes the Developer should make next.
-If you are uncertain whether any acceptance criterion is implemented, treat that as a failure and do NOT output PASS."""
-
-
-@dataclass
-class DeterministicCommandResult:
-    command: str
-    ok: bool
-    output: str
-
-
-@dataclass
-class DeterministicValidationResult:
-    ok: bool
-    report: str
+@dataclass(frozen=True)
+class RuleCard:
+    id: str
+    roles: tuple[Role, ...]
+    priority: Literal["required", "default", "conditional"]
+    tags: tuple[str, ...]
+    text: str
 
 
 @dataclass
@@ -192,14 +190,25 @@ TOKENS = TokenCounters()
 
 class AgentStateDict(TypedDict):
     userStory: str
-    blueprint: str
-    instructions: str
-    plannerSkills: str
-    developerSkills: str
-    validatorSkills: str
+    plannerContext: str
+    developerContext: str
+    validatorContext: str
+    plannerRules: str
+    developerRules: str
+    validatorRules: str
     angularVersionContext: str
     workOrder: str
+    workOrderDataJson: str
+    workOrderFormat: Literal["json", "markdown"]
     validationFeedback: str
+    deterministicViolations: list[str]
+    deterministicCoverage: dict[str, bool]
+    deterministicConfidence: float
+    retryChangedFilesSummary: str
+    developerAttemptInCycle: int
+    plannerStructuredFailures: int
+    validatorFailureStreak: int
+    lastRunId: str
     iterations: int
 
 
@@ -238,11 +247,13 @@ def truncate_prompt_text(text: str, max_chars: int) -> str:
     return f"{normalized[:head_budget]}{marker}{normalized[-tail_budget:]}"
 
 
-def normalize_prompt_block(title: str, content: str, max_chars: int) -> str:
-    trimmed = truncate_prompt_text(content, max_chars)
-    if not trimmed:
-        return f"## {title}\nNot available."
-    return f"## {title}\n{trimmed}"
+@dataclass(frozen=True)
+class PromptSection:
+    key: str
+    title: str
+    content: str
+    required: bool = False
+    priority: int = 100
 
 
 def detect_angular_major_version_from_package_json(package_json_path: Path) -> int | None:
@@ -287,36 +298,163 @@ def build_angular_version_context(template_package_json_path: Path) -> str:
     )
 
 
-def build_orchestrator_skill_context(role: Literal["planner", "developer", "validator"]) -> str:
-    role_sections: dict[str, list[tuple[str, Path]]] = {
-        "planner": [
-            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
-            ("Template Pattern Catalog", ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH),
-            ("Template Pattern Examples Index", TEMPLATE_PATTERN_CATALOG_INDEX_PATH),
-            ("Planner Work Orders", ORCHESTRATOR_SKILL_PLANNER_PATH),
-        ],
-        "developer": [
-            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
-            ("Template Pattern Catalog", ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH),
-            ("Developer Execution", ORCHESTRATOR_SKILL_DEVELOPER_PATH),
-        ],
-        "validator": [
-            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
-            ("Validator Audit", ORCHESTRATOR_SKILL_VALIDATOR_PATH),
-        ],
-    }
-    rendered_sections: list[str] = []
-    for title, section_path in role_sections[role]:
-        content = read_text_if_exists(section_path)
-        if not content.strip():
+def build_retrieval_sources() -> list[SourceDocument]:
+    return [
+        SourceDocument(
+            source_id="BLUEPRINT",
+            path=BLUEPRINT_PATH,
+            tags=("routing", "form", "validation", "shared-ui", "tailwind"),
+        ),
+        SourceDocument(
+            source_id="INSTRUCTIONS",
+            path=INSTRUCTIONS_PATH,
+            tags=("routing", "form", "validation", "shared-ui", "tailwind", "template"),
+        ),
+        SourceDocument(
+            source_id="VERSION_COMPAT",
+            path=ORCHESTRATOR_SKILL_COMPAT_PATH,
+            tags=("angular-version", "routing"),
+            mandatory_for=("planner", "developer", "validator"),
+        ),
+        SourceDocument(
+            source_id="PLANNER_WORKORDERS",
+            path=ORCHESTRATOR_SKILL_PLANNER_PATH,
+            tags=("work-order", "traceability", "selectors", "form"),
+            mandatory_for=("planner",),
+        ),
+        SourceDocument(
+            source_id="DEVELOPER_EXECUTION",
+            path=ORCHESTRATOR_SKILL_DEVELOPER_PATH,
+            tags=("build", "shared-ui", "form", "validation"),
+            mandatory_for=("developer",),
+        ),
+        SourceDocument(
+            source_id="VALIDATOR_AUDIT",
+            path=ORCHESTRATOR_SKILL_VALIDATOR_PATH,
+            tags=("validation", "shared-ui", "testing"),
+            mandatory_for=("validator",),
+        ),
+        SourceDocument(
+            source_id="PATTERN_CATALOG",
+            path=ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH,
+            tags=("layout", "form", "shared-ui"),
+        ),
+        SourceDocument(
+            source_id="PATTERN_INDEX",
+            path=TEMPLATE_PATTERN_CATALOG_INDEX_PATH,
+            tags=("layout", "form", "shared-ui"),
+            mandatory_for=("planner",),
+        ),
+    ]
+
+
+def _score_rule_for_story(rule: RuleCard, story_signals: set[str], user_story: str) -> float:
+    score = 0.0
+    if rule.priority == "default":
+        score += 30.0
+    if rule.priority == "conditional":
+        score += 20.0
+    if set(rule.tags).intersection(story_signals):
+        score += 40.0
+    matches = len(set(re.findall(r"[a-z][a-z0-9-]{2,}", user_story.lower())).intersection(set(rule.tags)))
+    score += float(matches)
+    return score
+
+
+def load_rule_catalog(*, catalog_path: Path = RULE_CATALOG_PATH) -> list[RuleCard]:
+    raw_catalog = (read_text_if_exists(catalog_path) or "{}").lstrip("\ufeff")
+    payload = json.loads(raw_catalog)
+    rules_payload = payload.get("rules")
+    if not isinstance(rules_payload, list):
+        raise RuntimeError(f"Invalid rule catalog at {catalog_path}: missing 'rules' array")
+
+    rules: list[RuleCard] = []
+    for item in rules_payload:
+        if not isinstance(item, dict):
             continue
-        rendered_sections.append(normalize_prompt_block(title, content, PROMPT_SKILL_SECTION_MAX_CHARS))
+        rule_id = str(item.get("id", "")).strip()
+        if not rule_id or not re.match(r"^[A-Z0-9_]+$", rule_id):
+            raise RuntimeError(f"Invalid rule id in catalog: {rule_id}")
+        roles_raw = item.get("roles", [])
+        roles: tuple[Role, ...] = tuple(role for role in roles_raw if role in {"planner", "developer", "validator"})
+        if not roles:
+            continue
+        priority = str(item.get("priority", "default")).strip().lower()
+        if priority not in {"required", "default", "conditional"}:
+            priority = "default"
+        tags_raw = item.get("tags", [])
+        tags = tuple(str(tag).strip().lower() for tag in tags_raw if str(tag).strip())
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+        rules.append(
+            RuleCard(
+                id=rule_id,
+                roles=roles,
+                priority=priority,  # type: ignore[arg-type]
+                tags=tags,
+                text=text,
+            )
+        )
+    return rules
 
-    if not rendered_sections:
-        return "No orchestrator skill pack content found."
 
-    combined = "\n\n".join(rendered_sections)
-    return truncate_prompt_text(combined, PROMPT_SKILLS_TOTAL_MAX_CHARS)
+def select_rule_cards_for_role(
+    *,
+    role: Role,
+    rules: list[RuleCard],
+    user_story: str,
+    max_count: int,
+) -> list[RuleCard]:
+    role_rules = [rule for rule in rules if role in rule.roles]
+    story_signals = infer_story_signals(user_story)
+    required = [rule for rule in role_rules if rule.priority == "required"]
+    defaults = [rule for rule in role_rules if rule.priority == "default"]
+    conditionals = [
+        rule
+        for rule in role_rules
+        if rule.priority == "conditional" and bool(set(rule.tags).intersection(story_signals))
+    ]
+
+    defaults_sorted = sorted(
+        defaults,
+        key=lambda rule: (-_score_rule_for_story(rule, story_signals, user_story), rule.id),
+    )
+    conditionals_sorted = sorted(
+        conditionals,
+        key=lambda rule: (-_score_rule_for_story(rule, story_signals, user_story), rule.id),
+    )
+
+    selected: list[RuleCard] = sorted(required, key=lambda rule: rule.id)
+    for candidate in defaults_sorted + conditionals_sorted:
+        if candidate.id in {rule.id for rule in selected}:
+            continue
+        if len(selected) >= max_count:
+            break
+        selected.append(candidate)
+    return selected
+
+
+def render_rule_context(*, selected_rules: list[RuleCard]) -> str:
+    if not selected_rules:
+        return "Applicable Rule IDs: none\nRule Text: none"
+    ids = "\n".join(f"- {rule.id}" for rule in selected_rules)
+    text = "\n".join(f"- {rule.id}: {rule.text}" for rule in selected_rules)
+    return f"Applicable Rule IDs:\n{ids}\n\nRule Text:\n{text}"
+
+
+def build_prompt_with_budget(*, sections: list[PromptSection], role: Role, model: str) -> str:
+    blocks = [
+        BudgetBlock(
+            key=section.key,
+            title=section.title,
+            content=section.content,
+            required=section.required,
+            priority=section.priority,
+        )
+        for section in sections
+    ]
+    return allocate_blocks(blocks=blocks, role=role, model=model)
 
 
 def cleanup_generated_app_processes(*, target_dir: Path = TARGET_DIR) -> None:
@@ -629,294 +767,185 @@ def normalize_validator_feedback(raw_final_message: str, *, target_dir: Path = T
     return NormalizedValidatorFeedback(normalized=raw_final_message)
 
 
-def infer_expected_primary_route(user_story: str, work_order: str) -> str | None:
-    combined = f"{user_story}\n{work_order}"
-    explicit = re.search(
-        r"""(?:Feature route should be|route should be|accessible at)\s+[`'"]?(\/[a-z0-9\-\/]*)[`'"]?""",
-        combined,
-        flags=re.IGNORECASE,
-    )
-    if explicit:
-        return explicit.group(1)
-
-    default_redirect = re.search(
-        r"""redirect(?:ed)? to\s+[`'"]?(\/[a-z0-9\-\/]+)[`'"]?""",
-        combined,
-        flags=re.IGNORECASE,
-    )
-    return default_redirect.group(1) if default_redirect else None
 
 
-def walk_files(dir_path: Path) -> list[Path]:
-    if not dir_path.exists():
-        return []
-    files: list[Path] = []
-    for entry in dir_path.iterdir():
-        if entry.is_dir():
-            files.extend(walk_files(entry))
-        elif entry.is_file():
-            files.append(entry)
-    return files
-
-
-def collect_line_violations(relative_path: str, content: str, regex: re.Pattern[str], label: str) -> list[str]:
-    violations: list[str] = []
-    for index, line in enumerate(content.splitlines(), start=1):
-        if regex.search(line):
-            violations.append(f"{relative_path}:{index} - {label}")
-    return violations
-
-
-def run_deterministic_command(command: str, *, target_dir: Path = TARGET_DIR) -> DeterministicCommandResult:
-    try:
-        result = subprocess.run(
-            command,
-            cwd=target_dir,
-            shell=True,
-            check=True,
-            text=True,
-            capture_output=True,
-            timeout=180,
-        )
-        return DeterministicCommandResult(command=command, ok=True, output=result.stdout)
-    except subprocess.CalledProcessError as exc:
-        return DeterministicCommandResult(
-            command=command,
-            ok=False,
-            output=f"STDOUT:\n{exc.stdout or ''}\nSTDERR:\n{exc.stderr or ''}".strip(),
-        )
-
-
-def run_deterministic_validation_checks(
+def build_planner_prompt(
     state: AgentStateDict,
     *,
-    target_dir: Path = TARGET_DIR,
-    command_runner: Callable[[str], DeterministicCommandResult] | None = None,
-) -> DeterministicValidationResult:
-    violations: list[str] = []
-    src_app_dir = target_dir / "src" / "app"
-    files = [file for file in walk_files(src_app_dir) if re.search(r"\.(ts|html|css)$", str(file))]
-    expected_primary_route = infer_expected_primary_route(state["userStory"], state["workOrder"])
-    should_enforce_reactive_form_validation = requires_reactive_form_validation(state["userStory"], state["workOrder"])
-    required_shared_ui_selectors = extract_required_shared_ui_selectors(state["userStory"])
-    feature_component_ts_contents: list[tuple[str, str]] = []
-    feature_html_contents: list[tuple[str, str]] = []
-    feature_markup_contents: list[tuple[str, str]] = []
-
-    banned_html_template_patterns: list[tuple[re.Pattern[str], str]] = [
-        (re.compile(r"\*ngIf\b"), "Use @if instead of *ngIf"),
-        (re.compile(r"\*ngFor\b"), "Use @for instead of *ngFor"),
-        (re.compile(r"\*ngSwitch\b"), "Use @switch instead of *ngSwitch"),
-        (re.compile(r"\*ngSwitchCase\b"), "Use @switch/@case instead of *ngSwitchCase"),
-        (re.compile(r"\*ngSwitchDefault\b"), "Use @switch/@default instead of *ngSwitchDefault"),
-        (re.compile(r"\[\(ngModel\)\]"), "Do not use [(ngModel)]; use Reactive Forms"),
-        (re.compile(r"=>"), "Do not use arrow functions in Angular templates"),
+    structured_output: bool,
+    model: str,
+    retry_supplement: str = "",
+) -> str:
+    output_instruction = (
+        "Return a JSON object matching the WorkOrderContract schema exactly. Do not include markdown."
+        if structured_output
+        else "Return a complete markdown Work Order."
+    )
+    sections = [
+        PromptSection(
+            key="planner_role",
+            title="Planner Role",
+            content=(
+                "You are the Planning Agent (The Architect). "
+                "Produce a decision-complete vertical slice work order."
+            ),
+            required=True,
+            priority=40,
+        ),
+        PromptSection(
+            key="planner_output_contract",
+            title="Output Contract",
+            content=output_instruction,
+            required=True,
+            priority=2,
+        ),
+        PromptSection(
+            key="planner_user_story",
+            title="User Story",
+            content=state["userStory"],
+            required=True,
+            priority=1,
+        ),
+        PromptSection(
+            key="planner_angular_version",
+            title="Angular Version Context",
+            content=state["angularVersionContext"],
+            required=True,
+            priority=30,
+        ),
+        PromptSection(
+            key="planner_rules",
+            title="Applicable Rules",
+            content=state["plannerRules"],
+            required=True,
+            priority=60,
+        ),
+        PromptSection(
+            key="planner_retrieved_context",
+            title="Retrieved Context Cards",
+            content=state["plannerContext"],
+            required=False,
+            priority=80,
+        ),
     ]
-
-    for file_path in files:
-        relative_path = file_path.relative_to(target_dir).as_posix()
-        content = file_path.read_text(encoding="utf-8")
-        is_feature_file = relative_path.startswith("src/app/features/")
-        is_feature_component_ts = is_feature_file and file_path.name.endswith(".component.ts")
-        is_shared_ui_file = relative_path.startswith("src/app/shared/ui/")
-        violations.extend(detect_shared_ui_projection_provider_risks(relative_path, content))
-
-        if is_feature_component_ts:
-            feature_component_ts_contents.append((relative_path, content))
-            # Inline `template: \`...\`` content lives in the TS file; scanning the TS text is sufficient
-            # for deterministic checks that only need to detect tags/patterns.
-            feature_markup_contents.append((relative_path, content))
-        if is_feature_file and file_path.suffix == ".html":
-            feature_html_contents.append((relative_path, content))
-            feature_markup_contents.append((relative_path, content))
-
-        if file_path.suffix == ".html":
-            for regex, label in banned_html_template_patterns:
-                violations.extend(collect_line_violations(relative_path, content, regex, label))
-
-        if file_path.suffix == ".ts" and (is_feature_file or relative_path == "src/app/app.spec.ts"):
-            violations.extend(
-                collect_line_violations(relative_path, content, re.compile(r"@Input\b"), "Use input() instead of @Input")
+    if retry_supplement.strip():
+        sections.append(
+            PromptSection(
+                key="planner_retry_fixes",
+                title="Planner Retry Fixes",
+                content=retry_supplement,
+                required=True,
+                priority=3,
             )
-            violations.extend(
-                collect_line_violations(relative_path, content, re.compile(r"@Output\b"), "Use output() instead of @Output")
-            )
-            violations.extend(collect_line_violations(relative_path, content, re.compile(r"\bany\b"), "Avoid any; use strict types or unknown"))
-            if file_path.name.endswith(".spec.ts"):
-                violations.extend(
-                    collect_line_violations(
-                        relative_path,
-                        content,
-                        re.compile(r"\.toBeTrue\(\)"),
-                        "Vitest does not support toBeTrue(); use toBe(true) or toBeTruthy()",
-                    )
-                )
-                violations.extend(
-                    collect_line_violations(
-                        relative_path,
-                        content,
-                        re.compile(r"\.toBeFalse\(\)"),
-                        "Vitest does not support toBeFalse(); use toBe(false) or toBeFalsy()",
-                    )
-                )
+        )
+    return build_prompt_with_budget(sections=sections, role="planner", model=model)
 
-        if is_feature_component_ts:
-            if "ChangeDetectionStrategy.OnPush" not in content:
-                violations.append(f"{relative_path}:1 - Component missing ChangeDetectionStrategy.OnPush")
-            if "changeDetection:" not in content:
-                violations.append(f"{relative_path}:1 - Component missing explicit changeDetection config")
 
-        if re.search(r"\.(html|ts)$", file_path.name):
-            custom_control_tag_regex = re.compile(
-                r"<app-(select|autocomplete|text-input|textarea|checkbox|switch|radio-group)\b[^>]*\bformControlName\s*="
-            )
-            if custom_control_tag_regex.search(content):
-                violations.append(f"{relative_path}:1 - Shared UI controls in app-* do not support formControlName unless explicitly documented")
-
-        if file_path.name.endswith(".component.css") and relative_path.startswith("src/app/features/"):
-            tailwind_utility_redefinitions: list[tuple[re.Pattern[str], str]] = [
-                (re.compile(r"^\s*\.container\b", re.MULTILINE), "Do not redefine Tailwind utility '.container' in feature CSS"),
-                (re.compile(r"^\s*\.grid\b", re.MULTILINE), "Do not redefine Tailwind utility '.grid' in feature CSS"),
-                (re.compile(r"^\s*\.grid-cols-\d+\b", re.MULTILINE), "Do not redefine Tailwind grid-cols-* utilities in feature CSS"),
-                (re.compile(r"^\s*\.flex\b", re.MULTILINE), "Do not redefine Tailwind utility '.flex' in feature CSS"),
-            ]
-            for regex, label in tailwind_utility_redefinitions:
-                if regex.search(content):
-                    violations.append(f"{relative_path}:1 - {label}")
-
-    app_html_path = src_app_dir / "app.html"
-    if app_html_path.exists():
-        app_html = app_html_path.read_text(encoding="utf-8")
-        if "<router-outlet" not in app_html:
-            violations.append("src/app/app.html:1 - app shell should include <router-outlet />")
-
-    app_routes_path = src_app_dir / "app.routes.ts"
-    if app_routes_path.exists():
-        app_routes = app_routes_path.read_text(encoding="utf-8")
-        if expected_primary_route:
-            if expected_primary_route == "/":
-                if not re.search(r"path:\s*''", app_routes):
-                    violations.append("src/app/app.routes.ts:1 - root route ('') is missing for primary route '/'")
-            else:
-                route_without_slash = re.escape(expected_primary_route.lstrip("/"))
-                if not re.search(rf"path:\s*''[\s\S]*redirectTo:\s*['\"]/?{route_without_slash}['\"]", app_routes):
-                    violations.append(f"src/app/app.routes.ts:1 - default route must redirect to {expected_primary_route}")
-                if not re.search(rf"path:\s*['\"]{route_without_slash}['\"]", app_routes):
-                    violations.append(f"src/app/app.routes.ts:1 - {expected_primary_route} route is missing")
-        else:
-            if not re.search(r"path:\s*''[\s\S]*redirectTo:\s*['\"]\/?[a-z0-9\-\/]+['\"]", app_routes, flags=re.IGNORECASE):
-                violations.append("src/app/app.routes.ts:1 - default route should redirect to the generated feature route")
-
-    if should_enforce_reactive_form_validation:
-        has_reactive_forms_module_import = any(re.search(r"\bReactiveFormsModule\b", c) for _, c in feature_component_ts_contents)
-        has_form_model_usage = any(re.search(r"\b(FormGroup|FormControl|FormBuilder|NonNullableFormBuilder)\b", c) for _, c in feature_component_ts_contents)
-        has_validator_usage = any(re.search(r"\bValidators\b|\bValidatorFn\b|\bAsyncValidatorFn\b", c) for _, c in feature_component_ts_contents)
-        form_markup_files = [(p, c) for p, c in feature_markup_contents if re.search(r"<form\b", c, flags=re.IGNORECASE)]
-        has_validation_ui_in_form = any(re.search(r"\b(invalid|errors|touched|dirty|submitted|error)\b", c) for _, c in form_markup_files)
-        has_submit_button = any(re.search(r'type\s*=\s*"submit"', c, flags=re.IGNORECASE) for _, c in form_markup_files)
-
-        if not has_reactive_forms_module_import:
-            violations.append("src/app/features/*:1 - Form/validation story requires ReactiveFormsModule in at least one feature component imports array")
-        if not has_form_model_usage:
-            violations.append("src/app/features/*:1 - Form/validation story requires typed Reactive Forms model usage (FormGroup/FormControl/FormBuilder)")
-        if not has_validator_usage:
-            violations.append("src/app/features/*:1 - Form/validation story requires validation rules (e.g., Validators.* or custom validator functions)")
-        if not form_markup_files:
-            violations.append("src/app/features/*:1 - Form/validation story requires at least one <form> element in feature templates")
-        else:
-            if not has_validation_ui_in_form:
-                violations.append("src/app/features/*:1 - Form/validation story requires visible validation/error UI in form templates (invalid/touched/errors/submitted states)")
-            if not has_submit_button:
-                violations.append('src/app/features/*:1 - Form/validation story requires a submit button (type="submit")')
-
-    if required_shared_ui_selectors:
-        combined_feature_html = "\n".join(content for _, content in feature_markup_contents)
-        for selector in required_shared_ui_selectors:
-            if not re.search(rf"<{re.escape(selector)}\b", combined_feature_html, flags=re.IGNORECASE):
-                violations.append(f"src/app/features/*:1 - User story requires shared UI selector '{selector}' to be used at least once in feature templates")
-
-    command_runner_impl = command_runner or (lambda command: run_deterministic_command(command, target_dir=target_dir))
-    deterministic_commands = [
-        command_runner_impl("npm.cmd run build"),
-        command_runner_impl("npm.cmd run test -- --watch=false"),
+def build_developer_system_prompt(state: AgentStateDict, retry_focus_instructions: str, *, model: str) -> str:
+    sections = [
+        PromptSection(
+            key="developer_role",
+            title="Developer Role",
+            content=(
+                "You are the Development Agent (The Engineer). Implement the provided work order in generated-app "
+                "using available tools. Build must pass with zero Angular warnings."
+            ),
+            required=True,
+            priority=20,
+        ),
+        PromptSection(
+            key="developer_angular_version",
+            title="Angular Version Context",
+            content=state["angularVersionContext"],
+            required=True,
+            priority=30,
+        ),
+        PromptSection(
+            key="developer_rules",
+            title="Applicable Rules",
+            content=state["developerRules"],
+            required=True,
+            priority=60,
+        ),
+        PromptSection(
+            key="developer_context_cards",
+            title="Retrieved Context Cards",
+            content=state["developerContext"],
+            required=False,
+            priority=80,
+        ),
     ]
-
-    for result in deterministic_commands:
-        if not result.ok:
-            output = result.output
-            truncated_suffix = "\n...[truncated]" if len(output) > 6000 else ""
-            violations.append(f"{result.command} failed.\n{output[:6000]}{truncated_suffix}")
-            continue
-
-        if re.search(r"run build", result.command, flags=re.IGNORECASE):
-            has_angular_warning = bool(re.search(r"\bWARNING\b", result.output, flags=re.IGNORECASE)) and bool(
-                re.search(r"\bNG\d{4,}\b", result.output) or re.search(r"\[plugin angular-compiler\]", result.output, flags=re.IGNORECASE)
+    if retry_focus_instructions.strip():
+        sections.append(
+            PromptSection(
+                key="developer_retry_focus",
+                title="Retry Focus",
+                content=retry_focus_instructions,
+                required=True,
+                priority=10,
             )
-            if has_angular_warning:
-                output = result.output
-                truncated_suffix = "\n...[truncated]" if len(output) > 6000 else ""
-                violations.append(
-                    f"{result.command} produced Angular build warnings (warnings are disallowed).\n{output[:6000]}{truncated_suffix}"
-                )
-
-    if not violations:
-        return DeterministicValidationResult(ok=True, report="Deterministic validator checks: PASS")
-
-    report = "\n".join(["Deterministic validator checks FAILED.", "", "Violations:"] + [f"- {v}" for v in violations])
-    return DeterministicValidationResult(ok=False, report=report)
+        )
+    return build_prompt_with_budget(sections=sections, role="developer", model=model)
 
 
-def build_planner_prompt(state: AgentStateDict) -> str:
-    return "".join(
-        [
-            "You are the Planning Agent (The Architect).\n",
-            "Blueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["plannerSkills"],
-            "\n\nAngular Version Context:\n",
-            state["angularVersionContext"],
-            "\n\nUser Story:\n",
-            state["userStory"],
-            "\n\n",
-            PLANNER_RULES_BLOCK,
+def build_validator_system_prompt(state: AgentStateDict, *, model: str) -> str:
+    sections = [
+        PromptSection(
+            key="validator_role",
+            title="Validator Role",
+            content=(
+                "You are the Validation Agent (The Tester). Deterministic prechecks already ran. "
+                "Run tests and verify semantic correctness against required criteria."
+            ),
+            required=True,
+            priority=20,
+        ),
+        PromptSection(
+            key="validator_angular_version",
+            title="Angular Version Context",
+            content=state["angularVersionContext"],
+            required=True,
+            priority=30,
+        ),
+        PromptSection(
+            key="validator_rules",
+            title="Applicable Rules",
+            content=state["validatorRules"],
+            required=True,
+            priority=60,
+        ),
+        PromptSection(
+            key="validator_context_cards",
+            title="Retrieved Context Cards",
+            content=state["validatorContext"],
+            required=False,
+            priority=80,
+        ),
+    ]
+    return build_prompt_with_budget(sections=sections, role="validator", model=model)
+
+
+def extract_unresolved_criteria_from_feedback(feedback: str, *, max_items: int = 8) -> list[str]:
+    if not feedback.strip() or feedback.strip() == "PASS":
+        return []
+    candidates = [
+        line.strip().lstrip("-").strip()
+        for line in feedback.splitlines()
+        if re.match(r"^\s*-\s+", line)
+    ]
+    if not candidates:
+        candidates = [
+            line.strip()
+            for line in feedback.splitlines()
+            if any(keyword in line.lower() for keyword in ("failed", "missing", "violation", "requires"))
         ]
-    )
-
-
-def build_developer_system_prompt(state: AgentStateDict, retry_focus_instructions: str) -> str:
-    return "".join(
-        [
-            DEVELOPER_RULES_BLOCK_PREFIX,
-            retry_focus_instructions,
-            "\n\nBlueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["developerSkills"],
-            "\n\nAngular Version Context:\n",
-            state["angularVersionContext"],
-        ]
-    )
-
-
-def build_validator_system_prompt(state: AgentStateDict) -> str:
-    return "".join(
-        [
-            VALIDATOR_RULES_BLOCK,
-            "\n\nBlueprint:\n",
-            state["blueprint"],
-            "\n\nInstructions:\n",
-            state["instructions"],
-            "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["validatorSkills"],
-            "\n\nAngular Version Context:\n",
-            state["angularVersionContext"],
-        ]
-    )
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+        if len(deduped) >= max_items:
+            break
+    return deduped
 
 
 def _ensure_langchain_runtime() -> None:
@@ -940,7 +969,7 @@ def _extract_token_usage(payload: object) -> tuple[int, int, int]:
     return 0, 0, 0
 
 
-def _build_llm():
+def _build_llm(*, model: str):
     _ensure_langchain_runtime()
     from langchain_core.callbacks.base import BaseCallbackHandler
     from langchain_openai import ChatOpenAI
@@ -956,7 +985,19 @@ def _build_llm():
             TOKENS.prompt_tokens += prompt
             TOKENS.completion_tokens += completion
 
-    return ChatOpenAI(model=DEFAULT_MODEL, temperature=0, callbacks=[TokenCallback()])
+    return ChatOpenAI(model=model, temperature=0, callbacks=[TokenCallback()])
+
+
+def _get_role_llm(state: AgentStateDict, role: Role, *, force_base: bool = False):
+    if force_base:
+        base_model = get_base_model_for_role(role)
+        return _build_llm(model=base_model), base_model, False
+    decision = get_model_for_role(
+        role=role,
+        planner_structured_failures=state.get("plannerStructuredFailures", 0),
+        validator_failure_streak=state.get("validatorFailureStreak", 0),
+    )
+    return _build_llm(model=decision.model), decision.model, decision.escalated
 
 
 def _create_react_agent_compat(*, llm, tools, message_modifier):
@@ -1006,115 +1047,562 @@ def _extract_final_message_content(response) -> str:
     return str(content)
 
 
-def _planner_node(state: AgentStateDict, llm, system_message_cls) -> dict[str, str]:
-    print("\n--- PLANNING AGENT ---")
-    base_prompt = build_planner_prompt(state)
-    work_order = ""
-    quality_issues: list[str] = []
+def _persist_work_order_outputs(
+    *,
+    work_order_markdown: str,
+    contract: WorkOrderContract | None,
+    work_order_format: Literal["json", "markdown"],
+) -> tuple[str, str]:
+    LAST_WORK_ORDER_PATH.write_text(work_order_markdown, encoding="utf-8")
+    if contract is None:
+        LAST_WORK_ORDER_JSON_PATH.write_text("{}\n", encoding="utf-8")
+        return "", work_order_format
+    json_payload = to_pretty_json(contract)
+    LAST_WORK_ORDER_JSON_PATH.write_text(f"{json_payload}\n", encoding="utf-8")
+    return json_payload, work_order_format
 
-    for attempt in range(1, 4):
-        if attempt == 1:
-            retry_supplement = ""
-        else:
-            retry_supplement = (
-                f"\n\nPLANNER SELF-CORRECTION (attempt {attempt} of 3):\n"
-                "Previous Work Order quality issues that MUST be fixed:\n"
-                + "\n".join(f"- {issue}" for issue in quality_issues)
-                + "\n\nReturn a complete corrected Work Order (full markdown), not a diff."
+
+def _invoke_planner_structured_once(llm, prompt: str) -> WorkOrderContract:
+    if hasattr(llm, "with_structured_output"):
+        structured_llm = llm.with_structured_output(WorkOrderContract)
+        response = structured_llm.invoke(prompt)
+        return validate_work_order_contract(response)
+
+    response = llm.invoke(prompt)
+    raw_content = str(getattr(response, "content", "") or "")
+    payload = json.loads(raw_content)
+    return validate_work_order_contract(payload)
+
+
+def _invoke_structured_with_model_fallback(state: AgentStateDict, prompt: str) -> WorkOrderContract:
+    llm, selected_model, _ = _get_role_llm(state, "planner")
+    try:
+        return _invoke_planner_structured_once(llm, prompt)
+    except Exception:
+        base_model = get_base_model_for_role("planner")
+        if selected_model == base_model:
+            raise
+        fallback_llm, _, _ = _get_role_llm(state, "planner", force_base=True)
+        return _invoke_planner_structured_once(fallback_llm, prompt)
+
+
+def _invoke_message_with_model_fallback(*, state: AgentStateDict, role: Role, message):
+    llm, selected_model, _ = _get_role_llm(state, role)
+    try:
+        return llm.invoke([message])
+    except Exception:
+        base_model = get_base_model_for_role(role)
+        if selected_model == base_model:
+            raise
+        fallback_llm, _, _ = _get_role_llm(state, role, force_base=True)
+        return fallback_llm.invoke([message])
+
+
+def resolve_work_order_mode_after_structured_failure(mode: str) -> Literal["markdown", "strict_error"]:
+    return "strict_error" if mode == "strict" else "markdown"
+
+
+def _planner_node(state: AgentStateDict, system_message_cls) -> dict[str, object]:
+    print("\n--- PLANNING AGENT ---")
+    quality_issues: list[str] = []
+    planner_structured_failures = int(state.get("plannerStructuredFailures", 0))
+    state["plannerStructuredFailures"] = planner_structured_failures
+
+    if WORK_ORDER_MODE in {"dual", "strict"}:
+        for attempt in range(1, 4):
+            state["plannerStructuredFailures"] = planner_structured_failures
+            retry_supplement = "" if attempt == 1 else "\n".join(
+                [
+                    f"Structured planning attempt {attempt}/3 failed.",
+                    "Fix these issues in the next full response:",
+                    *[f"- {issue}" for issue in quality_issues],
+                ]
+            )
+            routing_model = get_model_for_role(
+                role="planner",
+                planner_structured_failures=planner_structured_failures,
+                validator_failure_streak=state.get("validatorFailureStreak", 0),
+            ).model
+            prompt = build_planner_prompt(
+                state,
+                structured_output=True,
+                model=routing_model,
+                retry_supplement=retry_supplement,
+            )
+            try:
+                contract = _invoke_structured_with_model_fallback(state, prompt)
+                rendered = render_work_order_markdown(contract)
+                quality_issues = validate_work_order_quality(state["userStory"], rendered)
+                if not quality_issues:
+                    work_order_data_json, work_order_format = _persist_work_order_outputs(
+                        work_order_markdown=rendered,
+                        contract=contract,
+                        work_order_format="json",
+                    )
+                    print("Work Order Generated (JSON-first).")
+                    return {
+                        "workOrder": rendered,
+                        "workOrderDataJson": work_order_data_json,
+                        "workOrderFormat": work_order_format,
+                        "plannerStructuredFailures": planner_structured_failures,
+                    }
+            except Exception as exc:
+                quality_issues = format_validation_error_messages(exc)
+
+            planner_structured_failures += 1
+            state["plannerStructuredFailures"] = planner_structured_failures
+            print(
+                f"Planner structured output quality check failed (attempt {attempt}/3):\n- "
+                + "\n- ".join(quality_issues)
             )
 
-        response = llm.invoke([system_message_cls(content=f"{base_prompt}{retry_supplement}")])
-        work_order = str(getattr(response, "content", "") or "")
-        quality_issues = validate_work_order_quality(state["userStory"], work_order)
+        if resolve_work_order_mode_after_structured_failure(WORK_ORDER_MODE) == "strict_error":
+            raise RuntimeError("Planner failed to produce valid structured WorkOrderContract in strict mode.")
 
-        if not quality_issues:
+    markdown_attempts = 3 if WORK_ORDER_MODE == "observe" else 1
+    work_order_markdown = ""
+    markdown_issues: list[str] = []
+    for attempt in range(1, markdown_attempts + 1):
+        state["plannerStructuredFailures"] = planner_structured_failures
+        retry_supplement = "" if attempt == 1 else "\n".join(
+            [
+                f"Markdown planning attempt {attempt}/{markdown_attempts} failed.",
+                "Fix these issues and return a full corrected markdown work order:",
+                *[f"- {issue}" for issue in markdown_issues],
+            ]
+        )
+        routing_model = get_model_for_role(
+            role="planner",
+            planner_structured_failures=planner_structured_failures,
+            validator_failure_streak=state.get("validatorFailureStreak", 0),
+        ).model
+        prompt = build_planner_prompt(
+            state,
+            structured_output=False,
+            model=routing_model,
+            retry_supplement=retry_supplement,
+        )
+        response = _invoke_message_with_model_fallback(
+            state=state,
+            role="planner",
+            message=system_message_cls(content=prompt),
+        )
+        work_order_markdown = str(getattr(response, "content", "") or "")
+        markdown_issues = validate_work_order_quality(state["userStory"], work_order_markdown)
+        if not markdown_issues:
             break
 
         print(
-            f"Planner Work Order quality check failed (attempt {attempt}/3):\n- "
-            + "\n- ".join(quality_issues)
+            f"Planner markdown output quality check failed (attempt {attempt}/{markdown_attempts}):\n- "
+            + "\n- ".join(markdown_issues)
         )
 
-    if quality_issues:
-        print(
-            "Planner Work Order quality check still has issues after retries. Proceeding with latest Work Order.\n- "
-            + "\n- ".join(quality_issues)
+    contract_sidecar: WorkOrderContract | None = None
+    if WORK_ORDER_MODE == "observe":
+        try:
+            observe_model = get_model_for_role(
+                role="planner",
+                planner_structured_failures=planner_structured_failures,
+                validator_failure_streak=state.get("validatorFailureStreak", 0),
+            ).model
+            observe_prompt = build_planner_prompt(state, structured_output=True, model=observe_model)
+            contract_sidecar = _invoke_structured_with_model_fallback(state, observe_prompt)
+        except Exception:
+            contract_sidecar = None
+
+    work_order_data_json, work_order_format = _persist_work_order_outputs(
+        work_order_markdown=work_order_markdown,
+        contract=contract_sidecar,
+        work_order_format="markdown",
+    )
+    print("Work Order Generated (markdown fallback).")
+    return {
+        "workOrder": work_order_markdown,
+        "workOrderDataJson": work_order_data_json,
+        "workOrderFormat": work_order_format,
+        "plannerStructuredFailures": planner_structured_failures,
+    }
+
+
+def _build_execution_brief_for_state(state: AgentStateDict) -> str:
+    if state.get("workOrderFormat") == "json" and state.get("workOrderDataJson", "").strip():
+        try:
+            payload = json.loads(state["workOrderDataJson"])
+            contract = validate_work_order_contract(payload)
+            return build_execution_brief_from_contract(
+                contract,
+                options=ExecutionBriefOptions(max_chars=EXECUTION_BRIEF_MAX_CHARS),
+            )
+        except Exception:
+            pass
+    return build_execution_brief_from_markdown(state["workOrder"], max_chars=EXECUTION_BRIEF_MAX_CHARS)
+
+
+def _build_acceptance_excerpt_for_state(state: AgentStateDict, *, max_items: int = 12) -> str:
+    if state.get("workOrderFormat") == "json" and state.get("workOrderDataJson", "").strip():
+        try:
+            payload = json.loads(state["workOrderDataJson"])
+            contract = validate_work_order_contract(payload)
+            items = contract.acceptance_criteria[:max_items]
+            if len(contract.acceptance_criteria) > max_items:
+                items.append(f"... +{len(contract.acceptance_criteria) - max_items} more")
+            return "\n".join(f"- {item}" for item in items) if items else "- None"
+        except Exception:
+            pass
+
+    capture = False
+    items: list[str] = []
+    for raw_line in state["workOrder"].splitlines():
+        line = raw_line.strip()
+        if re.match(r"^#{1,6}\s+acceptance criteria\b", line, flags=re.IGNORECASE):
+            capture = True
+            continue
+        if capture and re.match(r"^#{1,6}\s+", line):
+            break
+        if capture and re.match(r"^-\s+", line):
+            items.append(re.sub(r"^-\s+", "", line))
+        if len(items) >= max_items:
+            break
+    if not items:
+        return "- Acceptance criteria not explicitly parsed from markdown."
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _format_bullets(items: list[str], *, fallback: str = "- None", max_items: int = 20) -> str:
+    if not items:
+        return fallback
+    trimmed = items[:max_items]
+    if len(items) > max_items:
+        trimmed.append(f"... +{len(items) - max_items} more")
+    return "\n".join(f"- {item}" for item in trimmed)
+
+
+def _build_requirement_summary(state: AgentStateDict) -> str:
+    combined = f"{state['userStory']}\n{state['workOrder']}"
+    routes = extract_explicit_route_data_points(combined)
+    selectors = extract_required_shared_ui_selectors(combined)
+    acceptance = _build_acceptance_excerpt_for_state(state, max_items=10)
+    route_block = _format_bullets(routes, fallback="- Route requirements not explicitly parsed.")
+    selector_block = _format_bullets(selectors, fallback="- No explicit selector requirements parsed.")
+    return (
+        "Primary Route Requirements:\n"
+        f"{route_block}\n\n"
+        "Required Selectors:\n"
+        f"{selector_block}\n\n"
+        "Acceptance Criteria Summary:\n"
+        f"{acceptance}"
+    )
+
+
+def _is_visual_quality_only_story(user_story: str) -> bool:
+    normalized = user_story.lower()
+    has_visual_words = bool(
+        re.search(r"\b(pixel|spacing|alignment|visual|look|feel|polish|theme|color|typography|layout)\b", normalized)
+    )
+    has_deterministicable = bool(
+        re.search(r"\b(route|selector|form|validation|aria|keyboard|onpush|inject|signal|test|build)\b", normalized)
+    )
+    return has_visual_words and not has_deterministicable
+
+
+def _should_force_llm_validator(state: AgentStateDict, deterministic: DeterministicValidationResult) -> bool:
+    required_selectors = extract_required_shared_ui_selectors(state["userStory"])
+    complex_selector_story = len(required_selectors) >= 12
+    accessibility_heavy = bool(re.search(r"\baria|accessib|keyboard|screen reader\b", state["userStory"], flags=re.IGNORECASE))
+    visual_only = _is_visual_quality_only_story(state["userStory"])
+    previous_feature_miss = bool(
+        re.search(r"\bfeature-level\b", state.get("validationFeedback", ""), flags=re.IGNORECASE)
+    )
+    if complex_selector_story or accessibility_heavy or visual_only or previous_feature_miss:
+        return True
+    return deterministic.confidence < VALIDATOR_HYBRID_CONFIDENCE_THRESHOLD
+
+
+def _build_developer_task_prompt(state: AgentStateDict, *, model: str) -> str:
+    attempt = int(state.get("developerAttemptInCycle", 0)) + 1
+    is_retry = attempt > 1
+    execution_brief = _build_execution_brief_for_state(state)
+    requirement_summary = _build_requirement_summary(state)
+    validation_feedback_prompt = truncate_prompt_text(
+        state["validationFeedback"] or "None. This is the first attempt.",
+        PROMPT_VALIDATION_FEEDBACK_MAX_CHARS,
+    )
+    unresolved = extract_unresolved_criteria_from_feedback(validation_feedback_prompt)
+    unresolved_block = _format_bullets(unresolved, fallback="- None")
+    deterministic_block = _format_bullets(state.get("deterministicViolations", []), fallback="- None")
+    changed_files_summary = state.get("retryChangedFilesSummary", "").strip() or "- No file change summary available yet."
+
+    include_execution_brief = (
+        (attempt == 1 and RETRY_INCLUDE_FULL_WORKORDER_ON_FIRST_ATTEMPT)
+        or (not unresolved and state.get("deterministicConfidence", 0.0) < VALIDATOR_HYBRID_CONFIDENCE_THRESHOLD)
+        or (not RETRY_DELTA_ONLY)
+        or (not is_retry)
+    )
+
+    blocks: list[BudgetBlock] = [
+        BudgetBlock(
+            key="developer_task_instruction",
+            title="Task",
+            content="Implement the feature, write code, and run `npm run build` until it succeeds with zero Angular warnings.",
+            required=True,
+            priority=1,
+        ),
+        BudgetBlock(
+            key="developer_requirement_summary",
+            title="Requirement Summary",
+            content=requirement_summary,
+            required=True,
+            priority=2,
+        ),
+        BudgetBlock(
+            key="developer_unresolved",
+            title="Unresolved Criteria",
+            content=unresolved_block,
+            required=True,
+            priority=3,
+        ),
+    ]
+    if RETRY_DELTA_ONLY and is_retry:
+        blocks.extend(
+            [
+                BudgetBlock(
+                    key="developer_retry_mode",
+                    title="Developer Retry Delta Mode",
+                    content="Apply minimal targeted edits. Keep correct code unchanged.",
+                    required=True,
+                    priority=1,
+                ),
+                BudgetBlock(
+                    key="developer_retry_violations",
+                    title="Deterministic Violations (latest)",
+                    content=deterministic_block,
+                    required=True,
+                    priority=3,
+                ),
+                BudgetBlock(
+                    key="developer_retry_changed_files",
+                    title="Changed Files Summary",
+                    content=changed_files_summary,
+                    required=True,
+                    priority=3,
+                ),
+            ]
+        )
+        if include_execution_brief:
+            blocks.append(
+                BudgetBlock(
+                    key="developer_execution_brief_retry",
+                    title="Execution Brief (compact re-include)",
+                    content=execution_brief,
+                    required=False,
+                    priority=2,
+                )
+            )
+    else:
+        blocks.extend(
+            [
+                BudgetBlock(
+                    key="developer_execution_brief",
+                    title="Execution Brief",
+                    content=execution_brief,
+                    required=True,
+                    priority=1,
+                ),
+                BudgetBlock(
+                    key="developer_validation_feedback",
+                    title="Feedback from Validator (if any)",
+                    content=validation_feedback_prompt,
+                    required=False,
+                    priority=4,
+                ),
+            ]
         )
 
-    LAST_WORK_ORDER_PATH.write_text(work_order, encoding="utf-8")
-    print("Work Order Generated.")
-    return {"workOrder": work_order}
+    return allocate_blocks(blocks=blocks, role="developer", model=model)
 
 
-def _developer_node(state: AgentStateDict, llm, human_message_cls, system_message_cls) -> dict[str, int]:
-    print(f"\n--- DEVELOPMENT AGENT (Iteration {state['iterations'] + 1}) ---")
+def _build_validator_task_prompt(state: AgentStateDict, deterministic: DeterministicValidationResult, *, model: str) -> str:
+    execution_brief = _build_execution_brief_for_state(state)
+    acceptance_excerpt = _build_acceptance_excerpt_for_state(state)
+    unresolved = extract_unresolved_criteria_from_feedback(state.get("validationFeedback", ""))
+    unresolved_block = _format_bullets(unresolved, fallback="- None")
+    deterministic_delta = _format_bullets(deterministic.violations, fallback="- None")
+    changed_files_summary = state.get("retryChangedFilesSummary", "").strip() or "- No file change summary available."
+    is_retry = int(state.get("developerAttemptInCycle", 0)) > 1
+
+    blocks: list[BudgetBlock] = [
+        BudgetBlock(
+            key="validator_task_instruction",
+            title="Task",
+            content='Run tests and code review. Reply with exactly "PASS" if all criteria are met, else return a focused failure report.',
+            required=True,
+            priority=1,
+        ),
+        BudgetBlock(
+            key="validator_execution_brief",
+            title="Execution Brief",
+            content=execution_brief,
+            required=True,
+            priority=1,
+        ),
+        BudgetBlock(
+            key="validator_acceptance",
+            title="Acceptance Criteria Excerpt",
+            content=acceptance_excerpt,
+            required=True,
+            priority=2,
+        ),
+    ]
+    if RETRY_DELTA_ONLY and is_retry:
+        blocks.extend(
+            [
+                BudgetBlock(
+                    key="validator_retry_mode",
+                    title="Validator Retry Delta Mode",
+                    content="Focus on unresolved criteria and recent file changes.",
+                    required=True,
+                    priority=1,
+                ),
+                BudgetBlock(
+                    key="validator_deterministic_delta",
+                    title="Deterministic Violations Delta",
+                    content=deterministic_delta,
+                    required=True,
+                    priority=3,
+                ),
+                BudgetBlock(
+                    key="validator_changed_files",
+                    title="Changed Files Summary",
+                    content=changed_files_summary,
+                    required=True,
+                    priority=3,
+                ),
+                BudgetBlock(
+                    key="validator_unresolved",
+                    title="Unresolved Criteria",
+                    content=unresolved_block,
+                    required=True,
+                    priority=3,
+                ),
+            ]
+        )
+    else:
+        blocks.append(
+            BudgetBlock(
+                key="validator_deterministic_conf",
+                title="Deterministic Coverage Summary",
+                content=f"- confidence: {deterministic.confidence}",
+                required=True,
+                priority=3,
+            )
+        )
+    return allocate_blocks(blocks=blocks, role="validator", model=model)
+
+
+def _developer_node(state: AgentStateDict, human_message_cls, system_message_cls) -> dict[str, object]:
+    attempt = int(state.get("developerAttemptInCycle", 0)) + 1
+    print(f"\n--- DEVELOPMENT AGENT (Iteration {state['iterations'] + 1}, Attempt {attempt}) ---")
     is_deterministic_retry = bool(
         re.match(r"^Deterministic validator checks FAILED\.", state.get("validationFeedback", "").strip())
     )
     dev_recursion_limit = 320 if is_deterministic_retry else 220
     retry_focus_instructions = (
-        "\nRETRY MODE (deterministic fixes only):\n"
-        "- The Validator already identified exact violations. Fix ONLY the cited files/patterns first.\n"
-        "- Do not rewrite the feature from scratch.\n"
-        "- Prefer minimal edits in the file paths listed in Validator feedback.\n"
-        "- Re-run 'npm run build' after each focused change and stop once build passes."
-        if is_deterministic_retry
+        "\nRETRY MODE:\n"
+        "- Use deterministic violations, changed-file summary, and unresolved criteria as the primary fix set.\n"
+        "- Apply minimal edits first.\n"
+        "- Re-run `npm run build` after each focused change."
+        if attempt > 1
         else ""
     )
 
-    dev_agent = _create_react_agent_compat(
-        llm=llm,
-        tools=build_langchain_tools(target_dir=TARGET_DIR),
-        message_modifier=system_message_cls(content=build_developer_system_prompt(state, retry_focus_instructions)),
-    )
+    selected_llm, selected_model, _ = _get_role_llm(state, "developer")
+    system_prompt = build_developer_system_prompt(state, retry_focus_instructions, model=selected_model)
+    task_prompt = _build_developer_task_prompt(state, model=selected_model)
+    tools = build_langchain_tools(target_dir=TARGET_DIR)
 
-    work_order_prompt = truncate_prompt_text(state["workOrder"], PROMPT_WORK_ORDER_MAX_CHARS)
-    validation_feedback_prompt = truncate_prompt_text(
-        state["validationFeedback"] or "None. This is the first attempt.",
-        PROMPT_VALIDATION_FEEDBACK_MAX_CHARS,
-    )
+    def _invoke_with_llm(llm, prompt_text: str):
+        dev_agent = _create_react_agent_compat(
+            llm=llm,
+            tools=tools,
+            message_modifier=system_message_cls(content=prompt_text),
+        )
+        _invoke_agent_compat(dev_agent, {"messages": [human_message_cls(content=task_prompt)]}, dev_recursion_limit)
 
-    prompt = (
-        "Here is your Work Order:\n"
-        f"{work_order_prompt}\n\n"
-        "Feedback from Validator (if any):\n"
-        f"{validation_feedback_prompt}\n\n"
-        "Please implement the feature, write the files, and run 'npm run build'."
-    )
+    try:
+        _invoke_with_llm(selected_llm, system_prompt)
+    except Exception:
+        base_model = get_base_model_for_role("developer")
+        if selected_model == base_model:
+            raise
+        fallback_llm, _, _ = _get_role_llm(state, "developer", force_base=True)
+        fallback_prompt = build_developer_system_prompt(state, retry_focus_instructions, model=base_model)
+        task_prompt = _build_developer_task_prompt(state, model=base_model)
+        _invoke_with_llm(fallback_llm, fallback_prompt)
 
-    _invoke_agent_compat(dev_agent, {"messages": [human_message_cls(content=prompt)]}, dev_recursion_limit)
     print("Development Complete.")
-    return {"iterations": 1}
+    return {"iterations": 1, "developerAttemptInCycle": attempt}
 
 
-def _validator_node(state: AgentStateDict, llm, human_message_cls, system_message_cls) -> dict[str, str]:
+def _validator_node(state: AgentStateDict, human_message_cls, system_message_cls) -> dict[str, object]:
     print("\n--- VALIDATION AGENT ---")
+    deterministic = run_deterministic_validation_checks(
+        user_story=state["userStory"],
+        work_order=state["workOrder"],
+        run_id=state.get("lastRunId", ""),
+        target_dir=TARGET_DIR,
+    )
 
-    deterministic = run_deterministic_validation_checks(state, target_dir=TARGET_DIR)
+    deterministic_update: dict[str, object] = {
+        "deterministicViolations": deterministic.violations,
+        "deterministicCoverage": deterministic.coverage,
+        "deterministicConfidence": deterministic.confidence,
+    }
     if not deterministic.ok:
         LAST_VALIDATION_PATH.write_text(deterministic.report, encoding="utf-8")
         preview = deterministic.report[:6000] + ("\n...[truncated]" if len(deterministic.report) > 6000 else "")
         print(f"Validator Feedback (Deterministic):\n{preview}")
         print("Validation Complete.")
-        return {"validationFeedback": deterministic.report}
+        deterministic_update.update(
+            {
+                "validationFeedback": deterministic.report,
+                "validatorFailureStreak": int(state.get("validatorFailureStreak", 0)) + 1,
+            }
+        )
+        return deterministic_update
 
     print(deterministic.report)
 
-    val_agent = _create_react_agent_compat(
-        llm=llm,
-        tools=build_langchain_tools(target_dir=TARGET_DIR),
-        message_modifier=system_message_cls(content=build_validator_system_prompt(state)),
-    )
+    if not _should_force_llm_validator(state, deterministic):
+        LAST_VALIDATION_PATH.write_text("PASS\n", encoding="utf-8")
+        print("Validator Gate: deterministic confidence high, LLM validator skipped.")
+        print("Validation Complete.")
+        deterministic_update.update({"validationFeedback": "PASS", "validatorFailureStreak": 0})
+        return deterministic_update
 
-    work_order_prompt = truncate_prompt_text(state["workOrder"], PROMPT_WORK_ORDER_MAX_CHARS)
-    prompt = (
-        "Work Order:\n"
-        f"{work_order_prompt}\n\n"
-        "Please validate the implementation. Run tests and check the code. "
-        'If everything is perfect, respond with "PASS". Otherwise, provide a detailed feedback report.'
-    )
+    selected_llm, selected_model, _ = _get_role_llm(state, "validator")
+    system_prompt = build_validator_system_prompt(state, model=selected_model)
+    task_prompt = _build_validator_task_prompt(state, deterministic, model=selected_model)
+    tools = build_langchain_tools(target_dir=TARGET_DIR)
 
-    response = _invoke_agent_compat(val_agent, {"messages": [human_message_cls(content=prompt)]}, 150)
+    def _invoke_with_llm(llm, prompt_text: str):
+        val_agent = _create_react_agent_compat(
+            llm=llm,
+            tools=tools,
+            message_modifier=system_message_cls(content=prompt_text),
+        )
+        return _invoke_agent_compat(val_agent, {"messages": [human_message_cls(content=task_prompt)]}, 150)
+
+    try:
+        response = _invoke_with_llm(selected_llm, system_prompt)
+    except Exception:
+        base_model = get_base_model_for_role("validator")
+        if selected_model == base_model:
+            raise
+        fallback_llm, _, _ = _get_role_llm(state, "validator", force_base=True)
+        fallback_prompt = build_validator_system_prompt(state, model=base_model)
+        task_prompt = _build_validator_task_prompt(state, deterministic, model=base_model)
+        response = _invoke_with_llm(fallback_llm, fallback_prompt)
+
     raw_final_message = _extract_final_message_content(response)
     normalized = normalize_validator_feedback(raw_final_message, target_dir=TARGET_DIR)
 
@@ -1124,11 +1612,19 @@ def _validator_node(state: AgentStateDict, llm, human_message_cls, system_messag
     LAST_VALIDATION_PATH.write_text(normalized.normalized, encoding="utf-8")
     if normalized.normalized == "PASS":
         print("Validator Result: PASS")
+        next_streak = 0
     else:
         preview = normalized.normalized[:4000] + ("\n...[truncated]" if len(normalized.normalized) > 4000 else "")
         print(f"Validator Feedback:\n{preview}")
+        next_streak = int(state.get("validatorFailureStreak", 0)) + 1
     print("Validation Complete.")
-    return {"validationFeedback": normalized.normalized}
+    deterministic_update.update(
+        {
+            "validationFeedback": normalized.normalized,
+            "validatorFailureStreak": next_streak,
+        }
+    )
+    return deterministic_update
 
 
 def _should_continue(state: AgentStateDict) -> Literal["developer", "END"]:
@@ -1152,36 +1648,92 @@ def run_full_workflow() -> None:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     setup_project(target_dir=TARGET_DIR)
+    run_id = start_run()
+    set_active_run_id(run_id)
+    print(f"Run ID: {run_id}")
 
     user_story = truncate_prompt_text(USER_STORY_PATH.read_text(encoding="utf-8"), PROMPT_USER_STORY_MAX_CHARS)
-    blueprint = truncate_prompt_text(BLUEPRINT_PATH.read_text(encoding="utf-8"), PROMPT_BLUEPRINT_MAX_CHARS)
-    instructions = truncate_prompt_text(INSTRUCTIONS_PATH.read_text(encoding="utf-8"), PROMPT_INSTRUCTIONS_MAX_CHARS)
-    planner_skills = build_orchestrator_skill_context("planner")
-    developer_skills = build_orchestrator_skill_context("developer")
-    validator_skills = build_orchestrator_skill_context("validator")
+    retrieval_sources = build_retrieval_sources()
+    retrieval_source_map = {source.source_id: source for source in retrieval_sources}
+    retrieval_cards = build_card_index(retrieval_sources)
+
+    role_contexts: dict[Role, str] = {"planner": "", "developer": "", "validator": ""}
+    if RETRIEVAL_ENABLED:
+        for role in ("planner", "developer", "validator"):
+            result: RetrievalResult = retrieve_context_for_role(
+                role=role,
+                user_story=user_story,
+                cards=retrieval_cards,
+                source_map=retrieval_source_map,
+                max_chars=RETRIEVAL_MAX_CHARS[role],
+            )
+            role_contexts[role] = result.context
+            print(
+                f"Context retrieval [{role}]: selected={len(result.selected_card_ids)} "
+                f"dropped={len(result.dropped_card_ids)} truncated={result.truncated}"
+            )
+
+    rule_catalog = load_rule_catalog(catalog_path=RULE_CATALOG_PATH)
+    role_rules: dict[Role, str] = {}
+    for role in ("planner", "developer", "validator"):
+        selected = select_rule_cards_for_role(
+            role=role,
+            rules=rule_catalog,
+            user_story=user_story,
+            max_count=RULE_MAX_COUNT[role],
+        )
+        role_rules[role] = render_rule_context(selected_rules=selected)
+
     angular_version_context = build_angular_version_context(TARGET_DIR / "package.json")
 
     state: AgentStateDict = {
         "userStory": user_story,
-        "blueprint": blueprint,
-        "instructions": instructions,
-        "plannerSkills": planner_skills,
-        "developerSkills": developer_skills,
-        "validatorSkills": validator_skills,
+        "plannerContext": role_contexts["planner"],
+        "developerContext": role_contexts["developer"],
+        "validatorContext": role_contexts["validator"],
+        "plannerRules": role_rules["planner"],
+        "developerRules": role_rules["developer"],
+        "validatorRules": role_rules["validator"],
         "angularVersionContext": angular_version_context,
         "workOrder": "",
+        "workOrderDataJson": "",
+        "workOrderFormat": "markdown",
         "validationFeedback": "",
+        "deterministicViolations": [],
+        "deterministicCoverage": {},
+        "deterministicConfidence": 0.0,
+        "retryChangedFilesSummary": "",
+        "developerAttemptInCycle": 0,
+        "plannerStructuredFailures": 0,
+        "validatorFailureStreak": 0,
+        "lastRunId": run_id,
         "iterations": 0,
     }
 
-    llm = _build_llm()
     print("\nStarting Agentic Workflow...")
 
-    state.update(_planner_node(state, llm, SystemMessage))
+    state.update(_planner_node(state, SystemMessage))
+    previous_snapshot = snapshot_files_hashes(
+        root=TARGET_DIR / "src" / "app",
+        relative_prefix=TARGET_DIR,
+    )
     while True:
-        dev_update = _developer_node(state, llm, HumanMessage, SystemMessage)
+        dev_update = _developer_node(state, HumanMessage, SystemMessage)
         state["iterations"] += int(dev_update.get("iterations", 0))
-        state.update(_validator_node(state, llm, HumanMessage, SystemMessage))
+        state.update({key: value for key, value in dev_update.items() if key != "iterations"})
+
+        current_snapshot = snapshot_files_hashes(
+            root=TARGET_DIR / "src" / "app",
+            relative_prefix=TARGET_DIR,
+        )
+        state["retryChangedFilesSummary"] = summarize_changed_files(
+            previous_snapshot=previous_snapshot,
+            current_snapshot=current_snapshot,
+            max_files=30,
+        )
+        previous_snapshot = current_snapshot
+
+        state.update(_validator_node(state, HumanMessage, SystemMessage))
         if _should_continue(state) == "END":
             break
 
@@ -1193,6 +1745,10 @@ def run_full_workflow() -> None:
 
 def run_self_test() -> None:
     print("Running orchestrator_py self-test (piecewise, no full workflow)...")
+    try:
+        from orchestrator_py.log_store import LOG_ROOT, LogStoreError, append_command_log, list_command_logs as list_logs, read_command_log as read_log
+    except ModuleNotFoundError:
+        from log_store import LOG_ROOT, LogStoreError, append_command_log, list_command_logs as list_logs, read_command_log as read_log
 
     assert "ng serve" in (reject_unsafe_agent_command("ng serve") or "")
     assert "watch-mode" in (reject_unsafe_agent_command("npm run test -- --watch") or "")
@@ -1200,7 +1756,6 @@ def run_self_test() -> None:
 
     selectors = extract_required_shared_ui_selectors("Use `app-menu`, `app-card`, and `app-card`.")
     assert selectors == ["app-dropdown-menu", "app-card"], selectors
-
     routes = extract_explicit_route_data_points("Feature route should be `/demo`. Default route redirected to /demo.")
     assert routes == ["/demo"], routes
 
@@ -1208,22 +1763,165 @@ def run_self_test() -> None:
     assert any("Feature Name & Goal" in issue for issue in quality_issues)
     assert any("Acceptance Criteria" in issue for issue in quality_issues)
 
+    loaded_rules = load_rule_catalog(catalog_path=RULE_CATALOG_PATH)
+    assert any(rule.id == "PLANNER_WORK_ORDER_HEADINGS" for rule in loaded_rules)
+    assert any("developer" in rule.roles for rule in loaded_rules)
+
+    with tempfile.TemporaryDirectory(prefix="orchestrator_py_retrieval_") as tmp:
+        tmp_dir = Path(tmp)
+        form_doc = tmp_dir / "form.md"
+        selector_doc = tmp_dir / "selectors.md"
+        compat_doc = tmp_dir / "compat.md"
+        form_doc.write_text("# Form Guidance\nUse reactive form validators and submit handling.\n", encoding="utf-8")
+        selector_doc.write_text("# Selector Guidance\nEnsure required app-card and app-button selectors are present.\n", encoding="utf-8")
+        compat_doc.write_text("# Compatibility\nAngular v20/v21 compatibility notes.\n", encoding="utf-8")
+
+        sources = [
+            SourceDocument("FORM_DOC", form_doc, tags=("form", "validation")),
+            SourceDocument("SELECTOR_DOC", selector_doc, tags=("selectors", "shared-ui")),
+            SourceDocument("VERSION_COMPAT", compat_doc, tags=("angular-version",), mandatory_for=("developer",)),
+        ]
+        cards = build_card_index(sources)
+        source_map = {source.source_id: source for source in sources}
+
+        form_result = retrieve_context_for_role(
+            role="developer",
+            user_story="Build a form with validation and submit behavior.",
+            cards=cards,
+            source_map=source_map,
+            max_chars=2400,
+        )
+        selector_result = retrieve_context_for_role(
+            role="developer",
+            user_story="Use required selectors app-card and app-button in templates.",
+            cards=cards,
+            source_map=source_map,
+            max_chars=2400,
+        )
+        assert any(card_id.startswith("FORM_DOC_") for card_id in form_result.selected_card_ids)
+        assert any(card_id.startswith("SELECTOR_DOC_") for card_id in selector_result.selected_card_ids)
+
+    valid_contract_payload = {
+        "feature_name": "Demo Feature",
+        "feature_goal": "Deliver a demo feature.",
+        "assumptions": ["Mock data only"],
+        "user_story_data_points": {
+            "routes": ["/demo"],
+            "selectors": ["app-card"],
+            "fields": ["title"],
+            "constraints": ["title required"],
+            "options": ["All", "Active", "Completed"],
+            "limits": ["title max 80"],
+        },
+        "requirement_traceability": [
+            {
+                "requirement": "Route setup",
+                "tasks": ["Add route"],
+                "acceptance_criteria": ["Route is reachable"],
+            }
+        ],
+        "file_structure": ["src/app/features/demo/demo.component.ts"],
+        "state_management": ["Use signal and computed."],
+        "form_model_validation": ["Typed FormControl with Validators.required."],
+        "ui_ux_requirements": ["Use app-card and Tailwind utilities."],
+        "template_pattern_references": ["layout-page-shell-header-toolbar"],
+        "deviation_notes": "",
+        "acceptance_criteria": ["Route works", "Build passes"],
+    }
+    contract = validate_work_order_contract(valid_contract_payload)
+    assert render_work_order_markdown(contract) == render_work_order_markdown(contract)
+    try:
+        validate_work_order_contract({"feature_name": "Invalid"})
+        raise AssertionError("Expected schema validation to fail for incomplete contract.")
+    except Exception:
+        pass
+
+    assert resolve_work_order_mode_after_structured_failure("dual") == "markdown"
+    assert resolve_work_order_mode_after_structured_failure("strict") == "strict_error"
+
+    # Token allocator required-first behavior
+    blocks = [
+        BudgetBlock(key="required", title="Required", content="must-keep", required=True, priority=1),
+        BudgetBlock(
+            key="optional_low",
+            title="OptionalLow",
+            content="\n".join(f"line-{i}" for i in range(20000)),
+            required=False,
+            priority=999,
+        ),
+    ]
+    allocated = allocate_blocks(blocks=blocks, role="validator", model=DEFAULT_MODEL)
+    assert "Required" in allocated
+
+    # Model routing escalation
+    assert get_model_for_role(role="planner", planner_structured_failures=0, validator_failure_streak=0).escalated is False
+    assert get_model_for_role(role="planner", planner_structured_failures=99, validator_failure_streak=0).escalated is True
+    assert get_model_for_role(role="validator", planner_structured_failures=0, validator_failure_streak=99).escalated is True
+
+    # Changed files summary add/modify/delete
+    changed_summary = summarize_changed_files(
+        previous_snapshot={"src/app/a.ts": "1", "src/app/b.ts": "2"},
+        current_snapshot={"src/app/a.ts": "9", "src/app/c.ts": "3"},
+    )
+    assert "added: src/app/c.ts" in changed_summary
+    assert "modified: src/app/a.ts" in changed_summary
+    assert "deleted: src/app/b.ts" in changed_summary
+
+    run_id = start_run()
+    set_active_run_id(run_id)
+    log_meta = append_command_log(
+        run_id=run_id,
+        command="echo hi",
+        cwd=REPO_ROOT,
+        exit_code=0,
+        stdout="hi",
+        stderr="",
+    )
+    assert log_meta.get("logId")
+    records = list_logs(run_id=run_id)
+    assert any(record.get("logId") == log_meta.get("logId") for record in records)
+    read_back = read_log(log_id=str(log_meta.get("logId")), run_id=run_id, tail_lines=20)
+    assert "echo hi" in read_back and "hi" in read_back
+
+    # Path traversal guard for log reads
+    outside_file = (Path(tempfile.gettempdir()) / "orchestrator_py_outside.log").resolve()
+    outside_file.write_text("outside\n", encoding="utf-8")
+    malicious_index = [
+        {
+            "logId": "evil",
+            "file": str(outside_file),
+            "command": "malicious",
+            "exitCode": 0,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    ]
+    index_path = LOG_ROOT / run_id / "commands" / "index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(json.dumps(malicious_index), encoding="utf-8")
+    try:
+        read_log(log_id="evil", run_id=run_id, tail_lines=10)
+        raise AssertionError("Expected traversal guard to reject outside log path")
+    except LogStoreError:
+        pass
+
     with tempfile.TemporaryDirectory(prefix="orchestrator_py_tools_") as tmp:
         tmp_dir = Path(tmp)
         assert "Successfully wrote" in write_code("src/test.txt", "hello", target_dir=tmp_dir)
         assert read_file("src/test.txt", target_dir=tmp_dir) == "hello"
         cmd_result = run_command('python -c "print(\'ok\')"', target_dir=tmp_dir)
-        assert "Command succeeded" in cmd_result and "ok" in cmd_result
+        assert "Command succeeded" in cmd_result and "id=" in cmd_result
 
     with tempfile.TemporaryDirectory(prefix="orchestrator_py_deterministic_") as tmp:
         fake_target = Path(tmp)
         (fake_target / "src" / "app" / "features" / "demo").mkdir(parents=True, exist_ok=True)
         (fake_target / "src" / "app" / "shared" / "ui").mkdir(parents=True, exist_ok=True)
         (fake_target / "src" / "app" / "shared" / "ui" / "index.ts").write_text(
+            "export * from './radio-group/radio-group.component';\n"
             "export * from './card/card.component';\n",
             encoding="utf-8",
         )
         (fake_target / "src" / "app" / "app.html").write_text("<router-outlet />\n", encoding="utf-8")
+        (fake_target / "src" / "app" / "app.ts").write_text("export class App {}\n", encoding="utf-8")
         (fake_target / "src" / "app" / "app.routes.ts").write_text(
             "export const routes = [\n"
             "  { path: '', redirectTo: 'demo', pathMatch: 'full' },\n"
@@ -1236,42 +1934,53 @@ def run_self_test() -> None:
             "import { ReactiveFormsModule, FormControl, FormGroup, Validators } from '@angular/forms';\n"
             "@Component({ selector: 'app-demo', imports: [ReactiveFormsModule], templateUrl: './demo.component.html', "
             "styleUrl: './demo.component.css', changeDetection: ChangeDetectionStrategy.OnPush })\n"
-            "export class DemoComponent { readonly form = new FormGroup({ email: new FormControl('', { nonNullable: true, validators: [Validators.required] }) }); }\n",
+            "export class DemoComponent { readonly form = new FormGroup({ type: new FormControl('', { nonNullable: true, validators: [Validators.required] }) }); }\n",
             encoding="utf-8",
         )
         (fake_target / "src" / "app" / "features" / "demo" / "demo.component.html").write_text(
-            "<form>\n"
-            "  <app-radio-group></app-radio-group>\n"
-            "  <div>touched errors invalid submitted</div>\n"
-            "  <button type=\"submit\">Submit</button>\n"
-            "</form>\n",
+            "<main>\n"
+            "  <form>\n"
+            "    <app-radio-group aria-label=\"Type\" [value]=\"form.controls.type.value\" (valueChange)=\"form.controls.type.setValue($event)\"></app-radio-group>\n"
+            "    <div>touched errors invalid submitted required</div>\n"
+            "    <button type=\"submit\" [disabled]=\"form.invalid\">Submit</button>\n"
+            "  </form>\n"
+            "</main>\n",
             encoding="utf-8",
         )
         (fake_target / "src" / "app" / "features" / "demo" / "demo.component.css").write_text("", encoding="utf-8")
-        (fake_target / "src" / "app" / "app.spec.ts").write_text("describe('x', () => {});\n", encoding="utf-8")
-
-        fake_state: AgentStateDict = {
-            "userStory": "Feature route should be /demo. Use a form with validation and error messages. Required selector: `app-radio-group`.",
-            "blueprint": "",
-            "instructions": "",
-            "plannerSkills": "",
-            "developerSkills": "",
-            "validatorSkills": "",
-            "angularVersionContext": "",
-            "workOrder": "Reactive form validation plan for /demo with app-radio-group and error messages.",
-            "validationFeedback": "",
-            "iterations": 0,
-        }
+        (fake_target / "src" / "app" / "app.spec.ts").write_text(
+            "import { TestBed } from '@angular/core/testing';\n"
+            "import { App } from './app';\n"
+            "describe('App', () => { beforeEach(async () => { await TestBed.configureTestingModule({ imports: [App] }).compileComponents(); }); });\n",
+            encoding="utf-8",
+        )
 
         def fake_runner(command: str) -> DeterministicCommandResult:
             return DeterministicCommandResult(command=command, ok=True, output="OK")
 
-        deterministic = run_deterministic_validation_checks(
-            fake_state,
+        pass_result = run_deterministic_validation_checks(
+            user_story="Feature route should be /demo. Use a form with validation and error messages. Required selector: `app-radio-group`.",
+            work_order="Reactive form validation plan for /demo with app-radio-group and error messages.",
+            run_id=run_id,
             target_dir=fake_target,
             command_runner=fake_runner,
         )
-        assert deterministic.ok, deterministic.report
+        assert pass_result.ok, pass_result.report
+        assert pass_result.confidence > 0.8
+
+        (fake_target / "src" / "app" / "features" / "demo" / "demo.component.html").write_text(
+            "<form><button type=\"submit\">Submit</button><div *ngIf=\"true\">x</div></form>\n",
+            encoding="utf-8",
+        )
+        fail_result = run_deterministic_validation_checks(
+            user_story="Feature route should be /demo.",
+            work_order="Feature route should be /demo.",
+            run_id=run_id,
+            target_dir=fake_target,
+            command_runner=fake_runner,
+        )
+        assert not fail_result.ok
+        assert fail_result.confidence == 0.0
 
         false_positive_text = (
             "shared ui component files are missing:\n"
@@ -1280,19 +1989,88 @@ def run_self_test() -> None:
         normalized = normalize_validator_feedback(false_positive_text, target_dir=fake_target)
         assert normalized.normalized == "PASS"
 
+    fake_state: AgentStateDict = {
+        "userStory": "Build /demo route with app-card selector and form validation.",
+        "plannerContext": "",
+        "developerContext": "",
+        "validatorContext": "",
+        "plannerRules": "",
+        "developerRules": "",
+        "validatorRules": "",
+        "angularVersionContext": "",
+        "workOrder": "Work order body",
+        "workOrderDataJson": "",
+        "workOrderFormat": "markdown",
+        "validationFeedback": "- Missing route redirect\n- Missing selector usage",
+        "deterministicViolations": ["src/app/app.routes.ts:1 - missing redirect"],
+        "deterministicCoverage": {"routing": False},
+        "deterministicConfidence": 0.95,
+        "retryChangedFilesSummary": "- modified: src/app/app.routes.ts [routing]",
+        "developerAttemptInCycle": 1,
+        "plannerStructuredFailures": 0,
+        "validatorFailureStreak": 0,
+        "lastRunId": run_id,
+        "iterations": 1,
+    }
+    retry_prompt = _build_developer_task_prompt(fake_state, model=DEFAULT_MODEL)
+    assert "Developer Retry Delta Mode" in retry_prompt
+    assert "Work order body" not in retry_prompt
+    assert "Changed Files Summary" in retry_prompt
+
+    # Hybrid gate decisions
+    assert _should_force_llm_validator(
+        fake_state,
+        DeterministicValidationResult(
+            ok=True,
+            report="",
+            violations=[],
+            coverage={"routing": True},
+            confidence=0.95,
+        ),
+    ) is False
+    assert _should_force_llm_validator(
+        fake_state,
+        DeterministicValidationResult(
+            ok=True,
+            report="",
+            violations=[],
+            coverage={"routing": True},
+            confidence=0.2,
+        ),
+    ) is True
+    selector_heavy_story = " ".join(f"`app-x-{i}`" for i in range(13))
+    selector_state = dict(fake_state)
+    selector_state["userStory"] = selector_heavy_story
+    assert _should_force_llm_validator(
+        selector_state,  # type: ignore[arg-type]
+        DeterministicValidationResult(ok=True, report="", violations=[], coverage={"routing": True}, confidence=0.99),
+    ) is True
+
     angular_context = build_angular_version_context(TEMPLATE_DIR / "package.json")
     assert "Angular target" in angular_context
-    skills_context = build_orchestrator_skill_context("planner")
-    assert isinstance(skills_context, str) and len(skills_context) > 0
+    retrieval_sources = build_retrieval_sources()
+    retrieval_cards = build_card_index(retrieval_sources)
+    retrieval_source_map = {source.source_id: source for source in retrieval_sources}
+    planner_context = retrieve_context_for_role(
+        role="planner",
+        user_story="Build a form-heavy page with routing.",
+        cards=retrieval_cards,
+        source_map=retrieval_source_map,
+        max_chars=RETRIEVAL_MAX_CHARS["planner"],
+    ).context
+    assert isinstance(planner_context, str) and len(planner_context) > 0
 
     print("Self-test checks passed:")
     print("- command safety guards")
-    print("- selector/route extraction helpers")
-    print("- work-order quality checker")
-    print("- local file tool functions")
-    print("- deterministic validator (stubbed build/test commands)")
-    print("- validator false-positive normalization")
-    print("- context loaders (Angular version + skill pack)")
+    print("- retrieval/rule/schema/renderer basics")
+    print("- token-budget allocator required-first behavior")
+    print("- model router escalation behavior")
+    print("- delta-only retry prompt builder")
+    print("- changed-file summary add/modify/delete")
+    print("- disk log store write/list/read + traversal guard")
+    print("- run_command compact diagnostics with log id/path")
+    print("- deterministic checks confidence + failure behavior")
+    print("- hybrid validator gate decision logic")
     print("orchestrator_py self-test: PASS")
 
 

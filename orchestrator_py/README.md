@@ -10,7 +10,7 @@ The orchestrator is a local multi-agent workflow runner that:
 
 1. Resets and clones the Angular template into `generated-app/`
 2. Installs the generated app dependencies
-3. Runs a **Planner agent** to create a Work Order from `orchestrator/user-story.md`
+3. Runs a **Planner agent** to create a Work Order from `orchestrator/user-story.md` (JSON-first with markdown rendering)
 4. Runs a **Developer agent** to implement the feature in `generated-app/`
 5. Runs a **Validator agent** to verify the result
 6. Loops Developer -> Validator until validation passes or max iterations are reached
@@ -19,8 +19,36 @@ It uses:
 
 - LangGraph (`langgraph`) for the state graph
 - OpenAI chat model via `langchain-openai`
-- A local tool layer (`read_file`, `write_code`, `run_command`) scoped to `generated-app/`
+- A local tool layer (`read_file`, `write_code`, `run_command`, `list_command_logs`, `read_command_log`) scoped to `generated-app/`
 - Deterministic pre-validation checks (build/test + code scans) before the LLM validator
+
+## Prompt Efficiency Architecture
+
+The Python orchestrator now reduces token usage with eight mechanisms:
+
+1. **Role-based context retrieval**
+   - It builds section cards from blueprint/instructions/skill references once per run.
+   - It retrieves a budgeted subset of cards per role (`planner`/`developer`/`validator`) based on user-story relevance.
+2. **External compact rule catalog**
+   - Rules are loaded from `orchestrator_py/rules/catalog.json` as rule IDs + short text.
+   - Prompts include only selected rule IDs/text for the current role.
+3. **JSON-first Work Order**
+   - Planner attempts structured `WorkOrderContract` output first.
+   - On success, it renders canonical markdown and writes both JSON + markdown artifacts.
+   - In `dual` mode, it falls back to markdown if structured output fails.
+4. **Delta-only retry prompts**
+   - Retry prompts send deterministic violations + changed-file summary + unresolved criteria.
+   - Full execution brief/work-order context is re-included only when needed.
+5. **Disk-backed command logs**
+   - Full command output is persisted under `orchestrator_py/logs/<run-id>/commands`.
+   - Prompts and tool responses receive compact diagnostics and log references.
+6. **Expanded deterministic checks**
+   - More Angular-specific checks run before LLM validation to reduce validator token usage.
+7. **Token budget allocator**
+   - Prompt blocks are estimated by tokens and allocated by priority, with semantic compression before drop.
+8. **Model routing + escalation**
+   - Role-based base models are used by default and escalated models activate after repeated planner/validator failures.
+   - Hybrid validator gate can skip the LLM validator on high deterministic confidence.
 
 ## Repository Assumptions (Required)
 
@@ -64,7 +92,7 @@ OPENAI_API_KEY=your_real_key_here
 Important:
 
 - Do not commit real API keys.
-- The orchestrator code does not currently expose model selection via env; the model is hardcoded in `orchestrator_py/index.py`.
+- Model routing is configurable via env (`ORCH_MODEL_*`).
 
 ### 3. Network Access (Required)
 
@@ -119,6 +147,7 @@ Copy-Item .env.example .env
 *(If `.env.example` doesn't exist, just create `.env` manually)*
 
 3. Edit `orchestrator_py/.env` and set `OPENAI_API_KEY`
+   - Optional tuning knobs now include retrieval/rule budgets, token budgets, retry mode, log retention, model routing/escalation, and hybrid validator threshold (`ORCH_WORK_ORDER_MODE`, `ORCH_RETRIEVAL_*`, `ORCH_RULE_MAX_COUNT_*`, `ORCH_TOKEN_BUDGET_*`, `ORCH_RETRY_*`, `ORCH_LOGS_*`, `ORCH_MODEL_*`, `ORCH_VALIDATOR_HYBRID_CONFIDENCE_THRESHOLD`).
 
 4. Edit `orchestrator/user-story.md` with the feature request (Note: it reads the user story from the `orchestrator` folder)
 
@@ -132,6 +161,7 @@ python index.py
 
 - Generated app: `generated-app/`
 - Last work order: `orchestrator_py/last-work-order.md`
+- Last work order (JSON): `orchestrator_py/last-work-order.json`
 - Last validation feedback: `orchestrator_py/last-validation-feedback.md`
 
 ## How The Orchestrator Works (Detailed)
@@ -202,8 +232,11 @@ After template setup, `main()` reads:
 - `instructions.md`
 - Orchestrator skill-pack references under `orchestrator/skills/angular-orchestrator-v20-v21/references/`
 - Template pattern docs index at `automate-angular-template/docs/agent-patterns/README.md`
+- Rule catalog at `orchestrator_py/rules/catalog.json`
 
 It also builds an Angular version context by reading `generated-app/package.json` and detecting `@angular/core` major version.
+
+It then builds a retrieval card index (once per run) and selects role-specific context by budget.
 
 Current behavior:
 
@@ -212,37 +245,33 @@ Current behavior:
 
 ## Step 3: LLM Initialization
 
-The orchestrator creates a single `ChatOpenAI` instance and reuses it across agents.
+The orchestrator creates role-specific `ChatOpenAI` instances with routing/escalation:
 
-Current hardcoded config in `orchestrator_py/index.py`:
-
-- Model: `gpt-4.1-nano`
-- Temperature: `0`
+- Planner: `ORCH_MODEL_PLAN_BASE` -> `ORCH_MODEL_PLAN_ESCALATED` after configured structured-failure threshold
+- Developer: `ORCH_MODEL_DEV_BASE` (cost-first default)
+- Validator: `ORCH_MODEL_VALIDATE_BASE` -> `ORCH_MODEL_VALIDATE_ESCALATED` after configured failure streak
 
 Token usage is tracked via LangChain callbacks and printed after the workflow completes.
 
-Important limitation:
-
-- There is no CLI flag or env var for model selection yet.
-- To change the model, edit `orchestrator_py/index.py`.
+Model routing and thresholds are configured through env vars in `orchestrator_py/.env`.
 
 ## Step 4: Planner Agent (`plannerNode`)
 
 The Planner agent receives:
 
 - User story
-- Blueprint
-- Instructions
-- Orchestrator skill-pack content
 - Angular version context
+- Retrieved planner context cards
+- Selected planner rule IDs/text
 
-It must produce a Markdown Work Order for vertical-slice implementation.
+It attempts to produce a structured Work Order contract first, then renders canonical markdown.
 
 ### Planner Output
 
-The planner writes the final Work Order to:
+The planner writes:
 
-- `orchestrator_py/last-work-order.md`
+- `orchestrator_py/last-work-order.json` (structured contract when available)
+- `orchestrator_py/last-work-order.md` (canonical markdown output)
 
 ### Planner Self-Correction Loop (Built In)
 
@@ -268,9 +297,9 @@ The Developer agent is a LangGraph React agent (`create_react_agent`) with local
 
 It receives:
 
-- The Work Order
+- Execution brief derived from Work Order JSON (or markdown fallback summary)
 - Optional validator feedback (on retries)
-- Blueprint/instructions/skills/version context
+- Retrieved developer context cards + selected developer rule IDs + Angular version context
 
 It is explicitly instructed to:
 
@@ -368,7 +397,11 @@ This helps push reusable fixes upstream into the template instead of patching ev
 
 ## LLM Validator Agent
 
-If deterministic checks pass, the LLM Validator agent performs semantic review against the Work Order and user story.
+If deterministic checks pass, the LLM Validator agent performs semantic review against:
+
+- Execution brief
+- Acceptance criteria excerpt
+- Retrieved validator context cards + selected validator rule IDs
 
 It is instructed to:
 
@@ -417,14 +450,13 @@ Complexity is inferred from user story selector count and form-validation requir
 
 The orchestrator stores this shared state in the graph:
 
-- `userStory`
-- `blueprint`
-- `instructions`
-- `orchestratorSkills`
-- `angularVersionContext`
-- `workOrder`
+- `userStory`, role contexts, and role rule blocks
+- `workOrder`, `workOrderDataJson`, `workOrderFormat`
 - `validationFeedback`
-- `iterations` (reducer increments across developer retries)
+- Deterministic telemetry: `deterministicViolations`, `deterministicCoverage`, `deterministicConfidence`
+- Retry telemetry: `retryChangedFilesSummary`, `developerAttemptInCycle`
+- Routing telemetry: `plannerStructuredFailures`, `validatorFailureStreak`
+- `lastRunId`, `iterations`
 
 ## Local Tooling Available To Developer/Validator Agents
 
@@ -433,6 +465,8 @@ Defined in `orchestrator_py/tools.py`:
 - `write_code`
 - `read_file`
 - `run_command`
+- `list_command_logs`
+- `read_command_log`
 
 All tools operate relative to:
 
@@ -451,8 +485,17 @@ All tools operate relative to:
 ### `run_command`
 
 - Runs shell commands inside `generated-app/`
-- Captures stdout/stderr
-- Returns success/failure output as a string
+- Captures stdout/stderr and writes full output to disk logs per run
+- Returns compact diagnostics with log id/path for follow-up inspection
+
+### `list_command_logs`
+
+- Lists available command logs for the active run with `logId`, command, exit code, and path
+
+### `read_command_log`
+
+- Reads saved command logs by `logId`
+- Supports tail-line limit and optional regex filtering
 
 #### Safety Guardrails In `run_command`
 
@@ -496,7 +539,12 @@ Generated app and build outputs:
 Planner/validator artifacts:
 
 - `orchestrator_py/last-work-order.md`
+- `orchestrator_py/last-work-order.json`
 - `orchestrator_py/last-validation-feedback.md`
+- `orchestrator_py/last-deterministic-report.md`
+- `orchestrator_py/logs/latest-run.txt`
+- `orchestrator_py/logs/<run-id>/commands/*.log`
+- `orchestrator_py/logs/<run-id>/commands/index.json`
 
 Potential fallback archive on deletion failure:
 
@@ -640,10 +688,10 @@ If you see similar path-assumption issues:
 
 ## Current Limitations / Design Constraints
 
-### Hardcoded model
+### Model routing defaults
 
-- `gpt-4.1-nano` is hardcoded in `orchestrator_py/index.py`
-- No env var override yet
+- Defaults are cost-first (`gpt-5-nano` base) and can be overridden via `.env`.
+- Escalation triggers are threshold-based heuristics; tune per workload.
 
 ### Windows-specific command assumptions in deterministic checks
 
