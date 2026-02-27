@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGET_DIR = (REPO_ROOT / "generated-app").resolve()
+MAX_READ_FILE_CHARS = int(os.getenv("ORCH_TOOL_READ_FILE_MAX_CHARS", "18000"))
+MAX_COMMAND_SUCCESS_CHARS = int(os.getenv("ORCH_TOOL_COMMAND_SUCCESS_MAX_CHARS", "5000"))
+MAX_COMMAND_FAILURE_CHARS = int(os.getenv("ORCH_TOOL_COMMAND_FAILURE_MAX_CHARS", "9000"))
+MAX_COMMAND_IMPORTANT_LINES = int(os.getenv("ORCH_TOOL_COMMAND_IMPORTANT_LINES", "120"))
 
 
 def reject_unsafe_agent_command(command: str) -> str | None:
@@ -40,6 +44,52 @@ def reject_unsafe_agent_command(command: str) -> str | None:
     return None
 
 
+def _truncate_text(text: str, max_chars: int) -> str:
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    marker = "\n...[truncated]...\n"
+    tail_budget = min(1200, max_chars // 3)
+    head_budget = max_chars - len(marker) - tail_budget
+    if head_budget < 200:
+        return text[: max(0, max_chars - len(marker))] + marker.strip()
+    return f"{text[:head_budget]}{marker}{text[-tail_budget:]}"
+
+
+def _is_high_volume_command(command: str) -> bool:
+    normalized = command.lower()
+    return "npm" in normalized and ("run build" in normalized or "run test" in normalized or "ng build" in normalized)
+
+
+def _extract_important_lines(stdout: str, stderr: str) -> str:
+    important_line_pattern = re.compile(
+        r"\b(error|failed|warning|exception|traceback|ng\d{4,}|ts\d{4,}|npm err|vitest|x\s+\d+)\b",
+        flags=re.IGNORECASE,
+    )
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in f"{stdout}\n{stderr}".splitlines():
+        candidate = line.strip()
+        if not candidate or candidate in seen:
+            continue
+        if important_line_pattern.search(candidate):
+            lines.append(candidate)
+            seen.add(candidate)
+        if len(lines) >= MAX_COMMAND_IMPORTANT_LINES:
+            break
+    return "\n".join(lines)
+
+
+def _summarize_success_output(command: str, stdout: str) -> str:
+    if not stdout.strip():
+        return "No stdout output."
+    if not _is_high_volume_command(command):
+        return _truncate_text(stdout, MAX_COMMAND_SUCCESS_CHARS)
+
+    tail_lines = stdout.splitlines()[-80:]
+    tail = "\n".join(tail_lines)
+    return _truncate_text(tail, MAX_COMMAND_SUCCESS_CHARS)
+
+
 def write_code(file_path: str, content: str, *, target_dir: Path = TARGET_DIR) -> str:
     full_path = (target_dir / file_path).resolve()
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +101,7 @@ def read_file(file_path: str, *, target_dir: Path = TARGET_DIR) -> str:
     full_path = (target_dir / file_path).resolve()
     if not full_path.exists():
         return f"Error: File {file_path} does not exist."
-    return full_path.read_text(encoding="utf-8")
+    return _truncate_text(full_path.read_text(encoding="utf-8"), MAX_READ_FILE_CHARS)
 
 
 def run_command(command: str, *, target_dir: Path = TARGET_DIR) -> str:
@@ -59,20 +109,28 @@ def run_command(command: str, *, target_dir: Path = TARGET_DIR) -> str:
     if command_rejection:
         return command_rejection
 
-    try:
-        output = subprocess.run(
-            command,
-            cwd=target_dir,
-            shell=True,
-            check=True,
-            text=True,
-            capture_output=True,
-        )
-        return f"Command succeeded:\n{output.stdout}"
-    except subprocess.CalledProcessError as exc:
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-        return f"Command failed:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    result = subprocess.run(
+        command,
+        cwd=target_dir,
+        shell=True,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    if result.returncode == 0:
+        return f"Command succeeded:\n{_summarize_success_output(command, stdout)}"
+
+    important_lines = _extract_important_lines(stdout, stderr)
+    details: list[str] = [f"Command failed (exit code {result.returncode})."]
+    if important_lines:
+        details.append(f"Important lines:\n{important_lines}")
+    if stdout.strip():
+        details.append(f"STDOUT (truncated):\n{_truncate_text(stdout, MAX_COMMAND_FAILURE_CHARS)}")
+    if stderr.strip():
+        details.append(f"STDERR (truncated):\n{_truncate_text(stderr, MAX_COMMAND_FAILURE_CHARS)}")
+    return "\n\n".join(details)
 
 
 def build_langchain_tools(*, target_dir: Path = TARGET_DIR) -> list[object]:

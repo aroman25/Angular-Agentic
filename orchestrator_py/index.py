@@ -47,6 +47,13 @@ LAST_VALIDATION_PATH = (PY_ORCHESTRATOR_DIR / "last-validation-feedback.md").res
 
 TEMPLATE_COPY_IGNORES = {"node_modules", "dist", ".angular", ".git"}
 DEFAULT_MODEL = "gpt-5-nano"
+PROMPT_BLUEPRINT_MAX_CHARS = int(os.getenv("ORCH_PROMPT_BLUEPRINT_MAX_CHARS", "5000"))
+PROMPT_INSTRUCTIONS_MAX_CHARS = int(os.getenv("ORCH_PROMPT_INSTRUCTIONS_MAX_CHARS", "5000"))
+PROMPT_USER_STORY_MAX_CHARS = int(os.getenv("ORCH_PROMPT_USER_STORY_MAX_CHARS", "8000"))
+PROMPT_WORK_ORDER_MAX_CHARS = int(os.getenv("ORCH_PROMPT_WORK_ORDER_MAX_CHARS", "9000"))
+PROMPT_VALIDATION_FEEDBACK_MAX_CHARS = int(os.getenv("ORCH_PROMPT_VALIDATION_FEEDBACK_MAX_CHARS", "4000"))
+PROMPT_SKILL_SECTION_MAX_CHARS = int(os.getenv("ORCH_PROMPT_SKILL_SECTION_MAX_CHARS", "1400"))
+PROMPT_SKILLS_TOTAL_MAX_CHARS = int(os.getenv("ORCH_PROMPT_SKILLS_TOTAL_MAX_CHARS", "4200"))
 
 
 PLANNER_RULES_BLOCK = """Create a detailed Work Order (Markdown) for the Development Agent following the Vertical Slicing Architecture.
@@ -187,7 +194,9 @@ class AgentStateDict(TypedDict):
     userStory: str
     blueprint: str
     instructions: str
-    orchestratorSkills: str
+    plannerSkills: str
+    developerSkills: str
+    validatorSkills: str
     angularVersionContext: str
     workOrder: str
     validationFeedback: str
@@ -213,6 +222,27 @@ def read_text_if_exists(file_path: Path) -> str:
         return file_path.read_text(encoding="utf-8")
     except Exception:
         return ""
+
+
+def truncate_prompt_text(text: str, max_chars: int) -> str:
+    normalized = text.strip()
+    if max_chars <= 0 or len(normalized) <= max_chars:
+        return normalized
+
+    # Keep mostly the beginning (instructions/context) and a smaller tail (often contains useful final notes).
+    marker = "\n...[truncated for token budget]...\n"
+    tail_budget = min(1200, max_chars // 4)
+    head_budget = max_chars - len(marker) - tail_budget
+    if head_budget < 200:
+        return normalized[: max(0, max_chars - len(marker))] + marker.strip()
+    return f"{normalized[:head_budget]}{marker}{normalized[-tail_budget:]}"
+
+
+def normalize_prompt_block(title: str, content: str, max_chars: int) -> str:
+    trimmed = truncate_prompt_text(content, max_chars)
+    if not trimmed:
+        return f"## {title}\nNot available."
+    return f"## {title}\n{trimmed}"
 
 
 def detect_angular_major_version_from_package_json(package_json_path: Path) -> int | None:
@@ -257,19 +287,36 @@ def build_angular_version_context(template_package_json_path: Path) -> str:
     )
 
 
-def build_orchestrator_skill_context() -> str:
-    sections = [
-        ("Version Compatibility", read_text_if_exists(ORCHESTRATOR_SKILL_COMPAT_PATH)),
-        ("Template Pattern Catalog", read_text_if_exists(ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH)),
-        ("Template Pattern Examples Index", read_text_if_exists(TEMPLATE_PATTERN_CATALOG_INDEX_PATH)),
-        ("Planner Work Orders", read_text_if_exists(ORCHESTRATOR_SKILL_PLANNER_PATH)),
-        ("Developer Execution", read_text_if_exists(ORCHESTRATOR_SKILL_DEVELOPER_PATH)),
-        ("Validator Audit", read_text_if_exists(ORCHESTRATOR_SKILL_VALIDATOR_PATH)),
-    ]
-    sections = [(title, content) for title, content in sections if content.strip()]
-    if not sections:
+def build_orchestrator_skill_context(role: Literal["planner", "developer", "validator"]) -> str:
+    role_sections: dict[str, list[tuple[str, Path]]] = {
+        "planner": [
+            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
+            ("Template Pattern Catalog", ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH),
+            ("Template Pattern Examples Index", TEMPLATE_PATTERN_CATALOG_INDEX_PATH),
+            ("Planner Work Orders", ORCHESTRATOR_SKILL_PLANNER_PATH),
+        ],
+        "developer": [
+            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
+            ("Template Pattern Catalog", ORCHESTRATOR_SKILL_PATTERN_CATALOG_PATH),
+            ("Developer Execution", ORCHESTRATOR_SKILL_DEVELOPER_PATH),
+        ],
+        "validator": [
+            ("Version Compatibility", ORCHESTRATOR_SKILL_COMPAT_PATH),
+            ("Validator Audit", ORCHESTRATOR_SKILL_VALIDATOR_PATH),
+        ],
+    }
+    rendered_sections: list[str] = []
+    for title, section_path in role_sections[role]:
+        content = read_text_if_exists(section_path)
+        if not content.strip():
+            continue
+        rendered_sections.append(normalize_prompt_block(title, content, PROMPT_SKILL_SECTION_MAX_CHARS))
+
+    if not rendered_sections:
         return "No orchestrator skill pack content found."
-    return "\n\n".join(f"## {title}\n{content.strip()}" for title, content in sections)
+
+    combined = "\n\n".join(rendered_sections)
+    return truncate_prompt_text(combined, PROMPT_SKILLS_TOTAL_MAX_CHARS)
 
 
 def cleanup_generated_app_processes(*, target_dir: Path = TARGET_DIR) -> None:
@@ -828,7 +875,7 @@ def build_planner_prompt(state: AgentStateDict) -> str:
             "\n\nInstructions:\n",
             state["instructions"],
             "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            state["plannerSkills"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
             "\n\nUser Story:\n",
@@ -849,7 +896,7 @@ def build_developer_system_prompt(state: AgentStateDict, retry_focus_instruction
             "\n\nInstructions:\n",
             state["instructions"],
             "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            state["developerSkills"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
         ]
@@ -865,7 +912,7 @@ def build_validator_system_prompt(state: AgentStateDict) -> str:
             "\n\nInstructions:\n",
             state["instructions"],
             "\n\nOrchestrator Angular Skills (derived from Codex Angular skills):\n",
-            state["orchestratorSkills"],
+            state["validatorSkills"],
             "\n\nAngular Version Context:\n",
             state["angularVersionContext"],
         ]
@@ -1021,11 +1068,17 @@ def _developer_node(state: AgentStateDict, llm, human_message_cls, system_messag
         message_modifier=system_message_cls(content=build_developer_system_prompt(state, retry_focus_instructions)),
     )
 
+    work_order_prompt = truncate_prompt_text(state["workOrder"], PROMPT_WORK_ORDER_MAX_CHARS)
+    validation_feedback_prompt = truncate_prompt_text(
+        state["validationFeedback"] or "None. This is the first attempt.",
+        PROMPT_VALIDATION_FEEDBACK_MAX_CHARS,
+    )
+
     prompt = (
         "Here is your Work Order:\n"
-        f"{state['workOrder']}\n\n"
+        f"{work_order_prompt}\n\n"
         "Feedback from Validator (if any):\n"
-        f"{state['validationFeedback'] or 'None. This is the first attempt.'}\n\n"
+        f"{validation_feedback_prompt}\n\n"
         "Please implement the feature, write the files, and run 'npm run build'."
     )
 
@@ -1053,9 +1106,10 @@ def _validator_node(state: AgentStateDict, llm, human_message_cls, system_messag
         message_modifier=system_message_cls(content=build_validator_system_prompt(state)),
     )
 
+    work_order_prompt = truncate_prompt_text(state["workOrder"], PROMPT_WORK_ORDER_MAX_CHARS)
     prompt = (
         "Work Order:\n"
-        f"{state['workOrder']}\n\n"
+        f"{work_order_prompt}\n\n"
         "Please validate the implementation. Run tests and check the code. "
         'If everything is perfect, respond with "PASS". Otherwise, provide a detailed feedback report.'
     )
@@ -1099,17 +1153,21 @@ def run_full_workflow() -> None:
 
     setup_project(target_dir=TARGET_DIR)
 
-    user_story = USER_STORY_PATH.read_text(encoding="utf-8")
-    blueprint = BLUEPRINT_PATH.read_text(encoding="utf-8")
-    instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8")
-    orchestrator_skills = build_orchestrator_skill_context()
+    user_story = truncate_prompt_text(USER_STORY_PATH.read_text(encoding="utf-8"), PROMPT_USER_STORY_MAX_CHARS)
+    blueprint = truncate_prompt_text(BLUEPRINT_PATH.read_text(encoding="utf-8"), PROMPT_BLUEPRINT_MAX_CHARS)
+    instructions = truncate_prompt_text(INSTRUCTIONS_PATH.read_text(encoding="utf-8"), PROMPT_INSTRUCTIONS_MAX_CHARS)
+    planner_skills = build_orchestrator_skill_context("planner")
+    developer_skills = build_orchestrator_skill_context("developer")
+    validator_skills = build_orchestrator_skill_context("validator")
     angular_version_context = build_angular_version_context(TARGET_DIR / "package.json")
 
     state: AgentStateDict = {
         "userStory": user_story,
         "blueprint": blueprint,
         "instructions": instructions,
-        "orchestratorSkills": orchestrator_skills,
+        "plannerSkills": planner_skills,
+        "developerSkills": developer_skills,
+        "validatorSkills": validator_skills,
         "angularVersionContext": angular_version_context,
         "workOrder": "",
         "validationFeedback": "",
@@ -1196,7 +1254,9 @@ def run_self_test() -> None:
             "userStory": "Feature route should be /demo. Use a form with validation and error messages. Required selector: `app-radio-group`.",
             "blueprint": "",
             "instructions": "",
-            "orchestratorSkills": "",
+            "plannerSkills": "",
+            "developerSkills": "",
+            "validatorSkills": "",
             "angularVersionContext": "",
             "workOrder": "Reactive form validation plan for /demo with app-radio-group and error messages.",
             "validationFeedback": "",
@@ -1222,7 +1282,7 @@ def run_self_test() -> None:
 
     angular_context = build_angular_version_context(TEMPLATE_DIR / "package.json")
     assert "Angular target" in angular_context
-    skills_context = build_orchestrator_skill_context()
+    skills_context = build_orchestrator_skill_context("planner")
     assert isinstance(skills_context, str) and len(skills_context) > 0
 
     print("Self-test checks passed:")
